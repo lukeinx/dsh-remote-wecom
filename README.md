@@ -17,13 +17,16 @@
 
 ## 安装
 
+`desktop` profile 只归 Desktop 管，`dsh plugin --profile desktop add` 会报 `managed exclusively by the Electron application`。先退出 Desktop，再手动加进 profile：
+
 ```sh
-cd dsh-remote-wecom
-npm install --omit=dev
-npx -y @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile desktop add "$PWD"
+cd dsh-remote-wecom && npm install
+cd ~/.dsh/profiles/desktop
+# package.json：dependencies 加 "dsh-remote-wecom": "link:<本仓库绝对路径>"，dsh.profile.bundles 末尾加 "dsh-remote-wecom"
+node "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/primary-runtime/dependencies/pnpm/bin/pnpm.mjs" install
 ```
 
-然后重启 DeepSeek Harness Desktop。
+然后启动 DeepSeek Harness Desktop。改了插件代码要重启 Desktop 才生效（配置变化不用）。
 
 ## 配置与绑定
 

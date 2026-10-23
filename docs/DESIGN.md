@@ -98,4 +98,4 @@ DeepSeek Harness.app ── host 进程
 
 - 单元测试：从 pi remote 搬来的宿主无关测试（传输、配置、别名、产物过滤）。
 - 端到端：`devDependencies` 带 `@deepseek-ai/dsh@0.2.1-rc.2`，测试用隔离 `DSH_HOME` 起 `dsh --profile web --patch`，加载脚本化假 LLM（`tests/fixtures/mock-llm.mjs`，标题取首条消息的第一个词）、代替 Desktop 窗口发起电脑轮次的 `tests/fixtures/desktop-probe.mjs` 和本插件，中途重启一次 dsh 让旧会话变成历史会话，企微侧用 `ws` 假服务器（`wsUrl` 配置），覆盖绑定、活跃/历史/创建会话、投递与回传、停止、切模型与思考强度、压缩、状态、产物、审批与提问卡片、关注/取关、引用路由。
-- 真机：安装到 `~/.dsh/profiles/desktop`（`dsh plugin --profile desktop add`），重启 Desktop，用专用机器人走一遍主流程。
+- 真机：安装到 `~/.dsh/profiles/desktop`（profile `package.json` 加 `link:` 依赖与 bundle，用 Desktop 自带 pnpm 安装；CLI 拒绝改 desktop profile），重启 Desktop，用专用机器人走一遍主流程。
