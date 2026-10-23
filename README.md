@@ -28,6 +28,23 @@ node "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/primary-runt
 
 然后启动 DeepSeek Harness Desktop。改了插件代码要重启 Desktop 才生效（配置变化不用）。
 
+### Desktop 离线看门狗（可选，macOS）
+
+插件跑在 Desktop 进程里，Desktop 退出后企微就没人接了。看门狗是一个 launchd 常驻进程，补上这段：
+
+```sh
+node bin/dsh-remote.mjs watchdog install    # 写入 ~/Library/LaunchAgents 并启动，登录后自动运行
+node bin/dsh-remote.mjs watchdog status     # 是否运行、插件心跳、暂存消息数、最近日志
+node bin/dsh-remote.mjs watchdog uninstall
+```
+
+- 插件运行时每 10 秒写一次心跳（`alive.json`），看门狗只在心跳超过 30 秒没更新时才连企微，平时不占连接。
+- Desktop 离线时发来的消息先暂存到 `spool/`（附件已下载到 `inbox/`），手机收到「已在后台启动」，看门狗用 `open -g -j` 在后台拉起 Desktop。插件上线后连上企微（同一机器人只能有一个连接，看门狗随即被挤下线），按顺序处理暂存的消息；超过 30 分钟的只提示不执行。
+- 卡片点击引用的是插件内存里的状态，离线期间点了只提示重新操作。
+- 拉起 2 分钟后插件仍未上线（比如插件被停用），手机会收到提醒。
+- 安装时如果 Desktop 正在运行却没有心跳（还是旧版本插件），会拒绝安装：先重启 Desktop 加载新插件再装，否则看门狗会把正在运行的插件挤下线。
+- 安装时记下当前 Node 和本仓库路径，换 Node 版本或移动仓库后要重新 `watchdog install`。
+
 ## 配置与绑定
 
 ```sh
@@ -43,10 +60,11 @@ node bin/dsh-remote.mjs setup --bot-id ID --secret S  # 非交互
 | `bind` | 解除当前主人，生成新绑定码（10 分钟有效，错 5 次作废） |
 | `status` | 配置、绑定状态、待发消息和最近日志（不显示 Secret） |
 | `alias [名称 目录 \| rm 名称]` | 查看或修改目录别名（「创建会话 别名 消息」「工作区 别名」用；别名目录是 Desktop 工作区时归入该工作区，否则进「未分组」） |
+| `watchdog install\|uninstall\|status` | Desktop 离线看门狗，见上面「安装」 |
 
 所有命令都可加 `--dir 目录` 指定数据目录。
 
-数据目录默认 `$DSH_HOME/integrations/dsh-remote-wecom/`（`DSH_HOME` 默认 `~/.dsh`），里面有 `config.json`、`bind.json`、`aliases.json`、`.default-place`（新建会话的默认工作区）、`phone-sessions.json`（最近一次用户消息来自手机的会话）、`outbox/`（断网待发）、`inbox/`（手机发来的附件）、`bridge.log` 等。
+数据目录默认 `$DSH_HOME/integrations/dsh-remote-wecom/`（`DSH_HOME` 默认 `~/.dsh`），里面有 `config.json`、`bind.json`、`aliases.json`、`.default-place`（新建会话的默认工作区）、`phone-sessions.json`（最近一次用户消息来自手机的会话）、`outbox/`（断网待发）、`inbox/`（手机发来的附件）、`alive.json`（插件心跳）、`spool/` 与 `watchdog.log`（看门狗暂存的消息和日志）、`bridge.log` 等。
 
 `config.json` 可选项：
 
@@ -98,12 +116,12 @@ node bin/dsh-remote.mjs setup --bot-id ID --secret S  # 非交互
 
 ## 限制
 
-- Desktop 未运行时离线；没有独立的后台进程。
+- 不装看门狗时，Desktop 未运行就离线；装了也只是暂存消息、拉起 Desktop，任务仍在 Desktop 里跑。
 - `compact` 不支持指定压缩重点（DSH `0.2.1-rc.2` 的 `/compact` 不接受参数），带说明时照常压缩并提示。
 - 历史检索只搜会话名和每轮用户消息的摘要（`turnOutline`），不搜回复。
 - 产物来自插件运行期间的事件，打开会话时再用最近 1000 条消息范围的快照补扫；临时目录、隐藏目录和 git 跟踪的文件不算产物。
 - 不能在手机上添加、移除或重命名工作区，也不能改会话名、分叉会话。
-- 插件随 Desktop 启停：Desktop 退出时，运行中的手机任务回一条「任务中断」（结果不再送回，任务本身可能已在电脑上完成），下次启动后收到「已重启」通知。
+- 插件随 Desktop 启停：Desktop 退出时，运行中的手机任务回一条「任务中断」（结果不再送回，任务本身可能已在电脑上完成），下次启动后收到「已重启」通知。看门狗暂存的消息是「至多一次」：插件取出即删，处理到一半时 Desktop 崩溃，剩下的不会重放。
 - 「关注」「取关」只在内存里生效：插件重启后恢复推送绑定会话的电脑任务，电脑发起的审批不再转手机。
 
 ## 开发

@@ -6,6 +6,7 @@ import os from 'node:os';
 import {WebSocketServer} from 'ws';
 import * as plugin from '../../lib/index.mjs';
 import {RESTART_NOTICE, WELCOME} from '../../lib/core/wecom.mjs';
+import {createWatchdog, spoolCount} from '../../lib/core/watchdog.mjs';
 
 const delay = ms => new Promise(r => setTimeout(r, ms));
 async function until(fn, ms = 10000, what = '') {
@@ -102,4 +103,32 @@ test('「重启」重建遥控实例并在新连接上通知；停止后断开�
   assert.equal(await approval({agent: {session: {id: 's1'}}, toolName: 'write'}, async () => 'allowed-once'), 'allowed-once');
   await delay(200);
   assert.equal(wecom.connections, 2);
+});
+
+test('看门狗：Desktop 离线时暂存并拉起，插件上线后接管连接并重放，停止后清掉心跳', async t => {
+  const wecom = await fakeWeCom(t);
+  const s = setup(t);
+  s.writeConfig(wecom.url);
+  const launches = [];
+  const dog = createWatchdog({dir: s.dir, launch: async () => { launches.push(Date.now()); }});
+  t.after(() => dog.stop());
+  dog.tick();
+  await until(() => wecom.connections === 1, 10000, 'watchdog connect');
+  await delay(100);
+  wecom.say('状态');
+  await until(() => wecom.sent.some(x => /已在后台启动/.test(x)), 10000, 'spool ack');
+  assert.equal(launches.length, 1);
+  assert.equal(spoolCount(s.dir), 1);
+
+  s.apply();
+  dog.tick();
+  assert.equal(dog.connected, false);
+  await until(() => wecom.sent.some(x => /开始处理离线期间的 1 条消息/.test(x)), 10000, 'replay notice');
+  const at = wecom.sent.findIndex(x => /开始处理离线期间/.test(x));
+  await until(() => wecom.sent.length > at + 1, 10000, 'replayed reply');
+  assert.equal(wecom.connections, 2);
+  assert.equal(spoolCount(s.dir), 0);
+
+  s.ctx.dispose();
+  await until(() => !fs.existsSync(path.join(s.dir, 'alive.json')), 15000, 'heartbeat cleared');
 });

@@ -102,9 +102,19 @@ DeepSeek Harness.app ── host 进程
 
 ## 配置与绑定
 
-- 数据目录 `$DSH_HOME/integrations/dsh-remote-wecom/`：`config.json`（`botId`、`secret`、`ownerUserId` 等）、`bind.json`、`cards.json`、`seen.json`、`aliases.json`、`outbox/`、`inbox/`、`bridge.log`。
+- 数据目录 `$DSH_HOME/integrations/dsh-remote-wecom/`：`config.json`（`botId`、`secret`、`ownerUserId` 等）、`bind.json`、`cards.json`、`seen.json`、`aliases.json`、`.default-place`、`phone-sessions.json`、`outbox/`、`inbox/`、`alive.json`、`watchdog.json`、`spool/`、`bridge.log`、`watchdog.log`。
 - `node bin/dsh-remote.mjs setup` 写入 BotID / Secret 并生成 6 位绑定码，`bind` 解除原主人并重新生成绑定码，`status` 看状态，`alias` 管理目录别名。插件约每 5 秒检查 `config.json` / `bind.json` 的 mtime，变化后停掉并重建遥控实例（插件自己绑定主人时的写入不算），不必重启 Desktop。
 - 同一 BotID 只能一条长连接：不能与 pi remote、dsh-im 企微通道共用机器人。
+
+## Desktop 离线看门狗
+
+插件随 Desktop 启停，macOS 上 Cmd+Q 后企微无人接。`dsh-remote-wecom watchdog install` 装一个 launchd LaunchAgent（`KeepAlive`）跑 `watchdog run`，每 2 秒 tick 一次（`lib/core/watchdog.mjs`）。
+
+- 交接靠心跳：插件 `apply` 时先写 `alive.json`（先于连企微），此后每 10 秒刷新，插件停止且遥控实例收尾后删除（只删自己 pid 写的）。心跳 30 秒内新鲜时看门狗不连、已连则断开；未配置或未绑定主人也不连。配置重载只重建遥控实例，心跳不断。
+- 企微服务端在新连接建立时向旧连接发 `disconnected_event` 并断开，SDK 不重连被踢的一方。插件上线时挤掉看门狗是预期路径；看门狗被其他连接踢掉时退避 5 分钟，避免与重复部署互踢。反向竞争（看门狗刚好在插件连上后才连，把插件踢掉）：传输层记 `kickedAt`，看门狗下一个 tick 看到心跳会断开并把 `watchdog.json` 写成 `connected:false`，插件心跳 tick 发现「被踢之后看门狗已让出」就重建遥控实例。
+- 看门狗复用 `WeComTransport`（只接主人单聊、msgid 去重、附件先下载到 `inbox/`、发件箱），关掉欢迎语与重启通知（不消费插件写的 `restart.json`），进会话提示换成离线文案。入站消息写 `spool/<at>-<uuid>.json`（`text`、已落盘附件、引用、时间），并 `open -g -j -b com.deepseek.dsh` 后台拉起 Desktop；一次拉起内的后续消息只回「已暂存」，2 分钟后仍无心跳则告警一次。卡片回调依赖插件内存状态，只提示重新操作。
+- 插件 `remote.start()` 给传输层挂 `replaySpool`：首次 `authenticated` 时取出并删除全部暂存（至多一次），排进入站队列依次走 `handleCommand`，超过 30 分钟的只提示。重连不再重放。
+- `watchdog install` 在 Desktop 进程存在但没有新鲜心跳时拒绝（旧版插件不写心跳，装上就会踢掉它），`--force` 跳过。
 
 ## 验证
 
