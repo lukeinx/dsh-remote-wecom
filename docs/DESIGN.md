@@ -33,23 +33,25 @@ DeepSeek Harness.app ── host 进程
 
 | 用途 | 调用 |
 |---|---|
-| 会话列表 | `session/list` `{_request:{}}` → `items[{sessionId, updatedAt, agentAvailable, running, blank, cwd, origin?, parentSessionId?, projections?}]` |
-| 会话投影 | `session/projections` `{request:{sessionId}}` → `values.{title, tokenUsage, contextPressure{pressureTokens, contextWindow}, turnOutline[{turn, prompt, response}], modelSelection{lastUsed, next}, workingDirectory}` |
+| 会话列表 | `session/list` `{_request:{}}` → `items[{sessionId, updatedAt, agentAvailable, running, blank, cwd, origin?, parentSessionId?, projections}]`；条目自带 `projections.values`（标题、turnOutline）。host 重启后旧会话 `agentAvailable: false`，投递时自动激活 |
+| 会话投影 | `session/projections` `{request:{sessionId}}` → `values.{title, tokenUsage, contextPressure{pressureTokens, projectedTokens, contextWindow}, turnOutline[{turn, prompt, response}], modelSelection{lastUsed, next}}`；压缩后 `projectedTokens` 下降 |
 | 新建 | `session/create` `{request:{cwd}}` → `{sessionId}` |
-| 投递 | `session/prompt` `{request:{requestId, sessionId, mode:'queue', content:[{type:'text', text}]}}`；对未激活的历史会话会自动激活 |
-| 停止 | `session/cancel` `{request:{sessionId}}` |
+| 投递 | `session/prompt` `{request:{requestId, sessionId, mode:'queue', content:[{type:'text', text}]}}` → `{accepted}`；对未激活的历史会话会自动激活。运行中投递的消息成为紧接着的下一轮，不并入当前轮 |
+| 停止 | `session/cancel` `{request:{sessionId}}` → `{accepted}`，该轮以 `turn/end{reason.kind:'aborted'}` 结束 |
 | 模型目录 | `session/modelCatalog` `{}` → `{default, groups[{id, name, models[{id, name, reasoning{efforts[{id, name}], defaultEffort}}]}], routableProviders}` |
-| 切模型 / 思考强度 | `session/selectModel` `{request:{sessionId, provider, model, reasoningEffort?}}` |
-| 压缩 | `commands/execute` `{agentId: sessionId, line: '/compact 说明', submittedAttachments: []}` → `{result:{kind, text}}` |
-| 历史事件 | `session/follow`（首帧 snapshot）+ `session/page` |
+| 切模型 / 思考强度 | `session/selectModel` `{request:{sessionId, provider, model, reasoningEffort?}}` → `{selected:{provider, model, reasoningEffort}}`，并发 `model/selection` 事件 |
+| 压缩 | `commands/execute` `{agentId: sessionId, line: '/compact', submittedAttachments: []}` → `{result:{kind:'success', text:'Compacted N history items (~X tokens).'}}`。rc.2 的 `/compact` 不接受参数（带参数返回 `kind:'error'`，`Usage: /compact (no arguments)`） |
+| 历史事件 | `session/follow` 流式 `{request:{address:{kind:'session', sessionId}, maxMessages}}`，首帧 `{type:'snapshot', records:[{type:'event', event:{type, seq, time, data}}], hasMore, projections}`；产物补扫只取首帧，不翻 `session/page` |
 
 `session/search` 在 Desktop 默认关闭，不用；历史检索在插件内对标题和 turnOutline 的 prompt 做，沿用 pi remote 的相关性打分。
 
+插件可能先于 `sessionController` 就绪（启动瞬间调用报 `active Service "sessionController" is unavailable`），启动时的会话同步需要重试。
+
 事件（`ctx.on(name, fn, { global: true })`）：
 
-- `session/event (session, event)`：`turn/start{turn}`、`user/message{source.kind, source.rpcId}`、`assistant/message{message.content[]}`、`tool/call{name, arguments}`、`tool/result{message.isError, meta.path}`、`turn/end{reason.kind: completed|aborted|error|max-tokens, reason.error.message}`、`session/title{title}`。`user/message` 混有系统注入消息，只认 `source.kind === 'user'`。
+- `session/event (session, event)`：`turn/start{turn}`、`user/message{source.kind, source.rpcId}`、`assistant/message{message.content[]}`、`tool/call{name, arguments}`、`tool/result{message.isError, meta.path}`、`turn/end{reason.kind: completed|aborted|error|max-tokens, reason.error.message}`、`session/title{title, source}`、`model/selection{provider, model, reasoningEffort}`。`user/message` 的 data 就是消息本身（`data.source`、`data.content`），混有 runtime-context 等系统注入消息，只认 `source.kind === 'user'`。一轮的顺序：`agent/inbox/spliced` → `api-session/status [sid, true]` → `turn/start` → `user/message` → … → `turn/end`。标题先来一条 `source.kind:'fallback'`（首条消息截断），模型起的标题随后再来一条。
 - `api-session/added (summary)`、`api-session/removed (sessionId)`、`api-session/status (sessionId, running)`。
-- `approval/request (req, next)`，注册时加 `prepend: true`：`req.{toolName, callId, reason, displayReason.zh, agent}`，返回 `'allowed-once' | 'rejected' | 'cancelled'`。
+- `approval/request (req, next)`，注册时加 `prepend: true`：`req.{toolName, callId, reason, displayReason.zh, agent, signal}`，返回 `'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'`。会话 id 取 `req.agent.session.id ?? req.agent.id`。
 - `user-questions/request (req, next)`：`req.questions[{id, question, header, options[{label, description}], multiSelect}]`，返回 `{answers:[{id, selected:[label], custom?}]}`。
 
 ## 映射
@@ -66,20 +68,21 @@ DeepSeek Harness.app ── host 进程
 | 命令 | DSH 实现 |
 |---|---|
 | `ls` 活跃会话 / `h` 历史会话 | `session/list` + projections；历史默认隐藏 subagent（`origin === 'subagent'` 或有 `parentSessionId`） |
-| `n` / `nb` 创建（后台）会话 | `session/create {cwd}`，再投递首条消息；`n` 额外 `open dsh://open`（屏幕锁定时跳过） |
+| `n` / `nb` 创建（后台）会话 | `session/create {request:{cwd}}`，再投递首条消息，等非 fallback 标题（`nameWaitMs`）；`n` 额外 `open dsh://open`（`openDesktop` 可关，屏幕锁定时跳过） |
 | `model` / `think` | `modelCatalog` + `selectModel`；思考强度取当前模型的 `reasoning.efforts` |
-| `compact` | `commands/execute '/compact 说明'`，运行中拒绝 |
+| `compact` | `commands/execute '/compact'`，运行中拒绝；带说明时照常压缩，卡片提示说明未生效 |
 | `stop` | `session/cancel` |
 | `status` | projections：目录（分支）、模型·思考强度、上下文 `pressureTokens / contextWindow`、token 用量 |
-| `art` 产物 | `write` / `edit` 的 `tool/result.meta.path`，`present` 的 `files[].path`，回复里链接给出的文件；过滤规则沿用 pi remote（扩展名白名单、排除 git 跟踪文件、隐藏目录、临时目录） |
+| `art` 产物 | `write` / `edit` 的 `tool/call.arguments.file_path` 与 `tool/result.meta.path`，`present` 的 `files[].path`，回复里链接给出的文件；来自实时事件，首次查看时用 `session/follow` 快照补扫；过滤规则沿用 pi remote（扩展名白名单、排除 git 跟踪文件、隐藏目录、临时目录） |
 | `cd` 目录别名、`关注` / `取关`、引用路由、待投递选会话卡片 | 宿主无关，原样保留 |
 | `restart` | 重启插件内的遥控服务（关传输、重载配置、重连），有任务运行时默认拒绝 |
 
 ### 弹窗
 
+- 与 pi remote 相同：审批只接手机发起的轮次，提问不限轮次（电脑发起的也推到手机）。电脑发起的审批、插件未运行、未绑定主人、企微断开时直接 `return next()`。
 - 审批 → `openUiPrompt` 的 `confirm`：标题用 `displayReason.zh`（无则 `reason`），正文带工具名。允许 → `allowed-once`，拒绝 → `rejected`，取消 → `cancelled`；超时按 `remoteConfirm`（默认 `ask-then-allow`）。
 - 提问 → `question`：多题逐题推送，标题 `（i/n）题目`，`header` 作短标签，允许自己写（返回 `custom`），取消或超时按未回答处理。
-- 与 Desktop 窗口抢答：同时调 `next()` 让 Desktop 弹窗，两边谁先答用谁的；Desktop 先答时收回手机卡片，手机先答时取消 Desktop 侧的等待。`next()` 立即返回 `unavailable` 表示没有窗口在答，只等手机。未绑定会话的请求先挂起，切过去时补推（与 pi remote 相同）。
+- 与 Desktop 窗口抢答：同时调 `next()` 让 Desktop 弹窗，两边谁先答用谁的。`req.signal` 换成插件私有的 AbortController，手机先答时只中止 Desktop 侧那一个等待；Desktop 先答时手机卡片作废（再点提示已处理）。`next()` 返回 `unavailable` / `cancelled`，或 1.5 秒内返回空答案，都表示没有窗口在答，只等手机。插件停止时未答的请求交回 `next()` 的结果。未绑定会话的请求先挂起，切过去时补推（与 pi remote 相同）。
 
 ### 附件
 
@@ -88,11 +91,11 @@ DeepSeek Harness.app ── host 进程
 ## 配置与绑定
 
 - 数据目录 `$DSH_HOME/integrations/dsh-remote-wecom/`：`config.json`（`botId`、`secret`、`ownerUserId` 等）、`bind.json`、`cards.json`、`seen.json`、`aliases.json`、`outbox/`、`inbox/`、`bridge.log`。
-- `node bin/dsh-remote.mjs setup` 写入 BotID / Secret 并生成 6 位绑定码，`bind` 重新生成绑定码，`status` 看状态。插件定时检查配置文件，变化后自动重连，不必重启 Desktop。
+- `node bin/dsh-remote.mjs setup` 写入 BotID / Secret 并生成 6 位绑定码，`bind` 解除原主人并重新生成绑定码，`status` 看状态，`alias` 管理目录别名。插件约每 5 秒检查 `config.json` / `bind.json` 的 mtime，变化后停掉并重建遥控实例（插件自己绑定主人时的写入不算），不必重启 Desktop。
 - 同一 BotID 只能一条长连接：不能与 pi remote、dsh-im 企微通道共用机器人。
 
 ## 验证
 
 - 单元测试：从 pi remote 搬来的宿主无关测试（传输、配置、别名、产物过滤）。
-- 端到端：`devDependencies` 带 `@deepseek-ai/dsh@0.2.1-rc.2`，测试用隔离 `DSH_HOME` 起 `dsh --profile web --patch`，加载脚本化假 LLM（`tests/fixtures/mock-llm.mjs`）和本插件，企微侧用 `ws` 假服务器（`wsUrl` 配置），覆盖绑定、活跃/历史/创建会话、投递与回传、停止、切模型与思考强度、压缩、状态、产物、审批与提问卡片、关注/取关、引用路由。
+- 端到端：`devDependencies` 带 `@deepseek-ai/dsh@0.2.1-rc.2`，测试用隔离 `DSH_HOME` 起 `dsh --profile web --patch`，加载脚本化假 LLM（`tests/fixtures/mock-llm.mjs`，标题取首条消息的第一个词）、代替 Desktop 窗口发起电脑轮次的 `tests/fixtures/desktop-probe.mjs` 和本插件，中途重启一次 dsh 让旧会话变成历史会话，企微侧用 `ws` 假服务器（`wsUrl` 配置），覆盖绑定、活跃/历史/创建会话、投递与回传、停止、切模型与思考强度、压缩、状态、产物、审批与提问卡片、关注/取关、引用路由。
 - 真机：安装到 `~/.dsh/profiles/desktop`（`dsh plugin --profile desktop add`），重启 Desktop，用专用机器人走一遍主流程。

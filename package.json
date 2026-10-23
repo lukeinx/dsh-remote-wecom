@@ -1,0 +1,50 @@
+{
+  "name": "dsh-remote-wecom",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness plugin: control Desktop sessions from WeCom, with session cards, attachments, approvals and task results.",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "wecom"
+  ],
+  "main": "lib/index.mjs",
+  "exports": {
+    ".": "./lib/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-remote-wecom": "./bin/dsh-remote.mjs"
+  },
+  "files": [
+    "lib",
+    "bin",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "NOTICE.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "dsh": ">=0.2.0-rc.2",
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "test": "node --test tests/unit/*.test.mjs",
+    "test:e2e": "node --test tests/e2e.test.mjs",
+    "check": "for f in lib/*.mjs lib/*/*.mjs bin/*.mjs; do node --check \"$f\" || exit 1; done && npm test"
+  },
+  "dependencies": {
+    "@wecom/aibot-node-sdk": "1.0.7"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh": "0.2.1-rc.2",
+    "ws": "^8.22.0"
+  }
+}

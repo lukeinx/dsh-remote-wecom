@@ -14,7 +14,14 @@ class MockAdapter extends LlmAdapter {
     const CTX = /^(\[|<|Time sampled|Current runtime context|Generate the session title)/
     let last = msgs[msgs.length - 1]
     if (last?.role === 'user') last = [...msgs].reverse().find(m => m.role === 'user' && !CTX.test(text(m.content).trim())) ?? last
-    if (/Generate the session title/.test(text(msgs[msgs.length - 1]?.content))) { yield* this.say('Mock Title'); return }
+    const titleAsk = text(msgs[msgs.length - 1]?.content)
+    if (/Generate the session title/.test(titleAsk)) {
+      // Distinct session names: the first word of the first human message.
+      let first = ''
+      try { first = JSON.parse(titleAsk.slice(titleAsk.indexOf('\n') + 1))[0]?.text ?? '' } catch {}
+      yield* this.say(first.trim().split(/\s+/)[0] || 'Untitled')
+      return
+    }
     const delay = (ms) => new Promise(r => setTimeout(r, ms))
     if (last?.role === 'user') {
       const t = text(last.content).trim()
