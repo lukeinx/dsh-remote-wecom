@@ -88,6 +88,12 @@ export const CSS = String.raw`
 .drw-spinner { width: 18px; height: 18px; border: 2px solid var(--dsw-alias-border-l3); border-top-color: var(--dsw-alias-label-secondary); border-radius: 50%; animation: drw-spin .9s linear infinite; }
 .drw-center { display: grid; place-items: center; min-height: 160px; gap: 10px; color: var(--dsw-alias-label-secondary); font-size: 13px; }
 
+.drw-fold { display: inline-flex; align-items: center; gap: 6px; margin-left: -4px; padding: 2px 4px; border: none; border-radius: var(--dsw-radius-sm, 6px); background: none; color: inherit; font: inherit; cursor: pointer; }
+.drw-fold:hover { color: var(--dsw-alias-label-primary); }
+.drw-fold svg { color: var(--dsw-alias-label-tertiary); transform: rotate(-90deg); transition: transform .12s ease; }
+.drw-fold[aria-expanded=true] svg { transform: none; }
+.drw-count { color: var(--dsw-alias-label-tertiary); font-weight: 400; font-variant-numeric: tabular-nums; }
+.drw-tag { flex: none; padding: 0 6px; border-radius: var(--dsw-radius-sm, 6px); background: var(--dsw-alias-bg-module-platform); color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 18px; white-space: nowrap; }
 .drw-alias { min-height: 44px; padding: 6px 0; }
 .drw-aliasName { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--drw-code); font-size: 13px; }
 .drw-aliasDir { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-family: var(--drw-code); font-size: 12px; direction: rtl; text-align: left; }
@@ -98,7 +104,7 @@ export const CSS = String.raw`
 
 @keyframes drw-spin { to { transform: rotate(360deg); } }
 @keyframes drw-pulse { 50% { opacity: .55; } }
-@media (prefers-reduced-motion: reduce) { .drw-spinner, .drw-skeleton { animation: none; } .drw-switch > span { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .drw-spinner, .drw-skeleton { animation: none; } .drw-switch > span, .drw-fold svg { transition: none; } }
 @media (max-width: 560px) {
   .drw-row { flex-wrap: wrap; gap: 8px 16px; }
   .drw-rowMain { align-items: flex-start; width: 100%; }

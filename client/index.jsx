@@ -1,4 +1,4 @@
-// 「设置 → 企微远程」：扫码创建机器人、绑定主人、偏好与目录别名。保存即生效，状态约 2 秒轮询一次。
+// 「设置 → 企微远程」：扫码创建机器人、绑定账号、新会话位置、偏好与其他目录。保存即生效，状态约 2 秒轮询一次。
 import * as React from 'react';
 import {installStyles} from './styles.js';
 import {en, zh} from './locale.js';
@@ -176,6 +176,7 @@ function OwnerControl({s, now, act, busy, t}) {
   if (s.bind.code && now < s.bind.expiresAt) {
     return (
       <Fragment>
+        <span className="drw-muted">{t('owner.send')}</span>
         {splitCode(s.bind.code)}
         <span className="drw-countdown">{mmss(s.bind.expiresAt - now)}</span>
         <Button size="sm" disabled={busy.owner} onClick={() => act('owner', 'newBindCode')}>{t('owner.regen')}</Button>
@@ -221,7 +222,20 @@ function TimeoutControl({prefs, act, busy, setError, t}) {
   );
 }
 
+function PlaceControl({place, act, busy, t}) {
+  return (
+    <span className="drw-select">
+      <select aria-label={t('row.place')} value={place.current} disabled={busy}
+        onChange={e => act('place', 'setPlace', {value: e.target.value})}>
+        {place.options.map(o => <option key={o.value} value={o.value}>{o.value === 'none' ? t('place.none') : o.label}</option>)}
+      </select>
+      <Chevron />
+    </span>
+  );
+}
+
 function Aliases({aliases, act, busy, errors, t}) {
+  const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [dir, setDir] = useState('');
@@ -235,10 +249,12 @@ function Aliases({aliases, act, busy, errors, t}) {
   return (
     <div className="drw-group">
       <div className="drw-groupHead">
-        <span>{t('alias.title')}</span>
-        {adding ? null : <Button size="sm" onClick={() => setAdding(true)}>{t('alias.add')}</Button>}
+        <button type="button" className="drw-fold" aria-expanded={open} onClick={() => { setOpen(v => !v); close(); }}>
+          {t('alias.title')}{aliases.length ? <span className="drw-count">{aliases.length}</span> : null}<Chevron />
+        </button>
+        {open && !adding ? <Button size="sm" onClick={() => setAdding(true)}>{t('alias.add')}</Button> : null}
       </div>
-      {adding ? (
+      {!open ? null : adding ? (
         <form className="drw-aliasForm" onSubmit={submit} onKeyDown={e => { if (e.key === 'Escape') close(); }}>
           <input ref={nameRef} className="drw-input" placeholder={t('alias.name')} aria-label={t('alias.name')} spellCheck={false}
             value={name} onChange={e => setName(e.target.value)} />
@@ -248,11 +264,12 @@ function Aliases({aliases, act, busy, errors, t}) {
           <Button size="sm" onClick={close}>{t('cancel')}</Button>
         </form>
       ) : null}
-      {errors.alias ? <div className="drw-error" role="alert" style={{textAlign: 'left', padding: '6px 0'}}>{errors.alias}</div> : null}
-      {aliases.length ? aliases.map(a => (
+      {open && errors.alias ? <div className="drw-error" role="alert" style={{textAlign: 'left', padding: '6px 0'}}>{errors.alias}</div> : null}
+      {!open ? null : aliases.length ? aliases.map(a => (
         <div key={a.name} className="drw-row drw-alias">
           <span className="drw-aliasName" title={a.name}>{a.name}</span>
           <span className="drw-rowControl" style={{flexWrap: 'nowrap'}}>
+            {a.workspace ? <span className="drw-tag">{t('alias.isWorkspace')}</span> : null}
             <span className="drw-aliasDir" title={a.dir}><bdi>{a.dir}</bdi></span>
             <Button className="drw-icon" size="sm" aria-label={`${t('alias.remove')} ${a.name}`} title={t('alias.remove')} disabled={busy}
               onClick={() => act('alias', 'removeAlias', {name: a.name})}><CloseIcon /></Button>
@@ -276,6 +293,11 @@ function Configured({s, now, act, busy, errors, setError, t}) {
         </Row>
       </div>
       <div className="drw-group">
+        {s.place ? (
+          <Row label={t('row.place')} error={errors.place}>
+            <PlaceControl place={s.place} act={act} busy={busy.place} t={t} />
+          </Row>
+        ) : null}
         <Row label={t('row.confirm')} error={errors.confirm}>
           <TimeoutControl prefs={s.prefs} act={act} busy={busy.confirm} setError={setError} t={t} />
         </Row>
