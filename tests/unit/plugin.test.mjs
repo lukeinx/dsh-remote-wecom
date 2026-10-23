@@ -44,10 +44,14 @@ function fakeCtx() {
   const handlers = new Map();
   const disposers = [];
   const warnings = [];
+  const routes = new Map();
   return {
-    handlers, warnings,
+    handlers, warnings, routes,
     logger: {warn: l => warnings.push(l), debug() {}},
-    connection: {createPeer: () => ({})},
+    connection: {
+      createPeer: () => ({}),
+      fetch: {register(route) { routes.set(route.path, route); return () => routes.delete(route.path); }},
+    },
     typertGateway: {invoke: async () => ({items: []})},
     on(name, fn) { handlers.set(name, fn); return () => handlers.delete(name); },
     effect(fn) { disposers.push(fn()); },
@@ -82,6 +86,30 @@ test('未配置凭证只记日志；写入配置后自动连接，外部再改�
   await delay(30);
   s.writeConfig(wecom.url, {remoteConfirm: 'ask'});
   await until(() => wecom.connections === 2, 10000, 'reconnect');
+});
+
+test('设置页路由：随插件注册/注销；改偏好立即重连一次，mtime 轮询不重复触发，也不发重启通知', async t => {
+  const wecom = await fakeWeCom(t);
+  const s = setup(t);
+  s.writeConfig(wecom.url);
+  plugin.apply(s.ctx, {dataDir: s.dir, watchMs: 30});
+  await until(() => wecom.sent.includes(WELCOME), 10000, 'welcome');
+  const route = s.ctx.routes.get('/api/dsh-remote-wecom/settings');
+  assert.ok(route);
+  assert.deepEqual(route.methods, ['POST']);
+  const res = await route.fetch(new Request('http://127.0.0.1:1/api/dsh-remote-wecom/settings', {
+    method: 'POST', headers: {'content-type': 'application/json', host: '127.0.0.1:1'},
+    body: JSON.stringify({type: 'client-request', rpcId: 'p1', method: 'dsh-remote-wecom/settings', payload: {method: 'setPrefs', payload: {remoteConfirm: 'ask'}}}),
+  }));
+  const body = await res.json();
+  assert.equal(body.result.ok, true);
+  assert.equal(body.result.value.prefs.remoteConfirm, 'ask');
+  await until(() => wecom.connections === 2, 10000, 'reconnect');
+  await delay(400);
+  assert.equal(wecom.connections, 2);
+  assert.ok(!wecom.sent.includes(RESTART_NOTICE));
+  s.ctx.dispose();
+  assert.equal(s.ctx.routes.size, 0);
 });
 
 test('「重启」重建遥控实例并在新连接上通知；停止后断开且审批交回 Desktop', async t => {

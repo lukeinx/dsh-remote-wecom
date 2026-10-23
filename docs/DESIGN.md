@@ -91,11 +91,37 @@ DeepSeek Harness.app ── host 进程
 ## 配置与绑定
 
 - 数据目录 `$DSH_HOME/integrations/dsh-remote-wecom/`：`config.json`（`botId`、`secret`、`ownerUserId` 等）、`bind.json`、`cards.json`、`seen.json`、`aliases.json`、`outbox/`、`inbox/`、`bridge.log`。
-- `node bin/dsh-remote.mjs setup` 写入 BotID / Secret 并生成 6 位绑定码，`bind` 解除原主人并重新生成绑定码，`status` 看状态，`alias` 管理目录别名。插件约每 5 秒检查 `config.json` / `bind.json` 的 mtime，变化后停掉并重建遥控实例（插件自己绑定主人时的写入不算），不必重启 Desktop。
+- 首选 Desktop「设置 → 企微远程」扫码（见下节）；命令行是后备：`node bin/dsh-remote.mjs setup` 写入 BotID / Secret 并生成 6 位绑定码，`bind` 解除原主人并重新生成绑定码，`status` 看状态，`alias` 管理目录别名。插件约每 5 秒检查 `config.json` / `bind.json` 的 mtime，变化后停掉并重建遥控实例（插件自己绑定主人时的写入不算），不必重启 Desktop。
 - 同一 BotID 只能一条长连接：不能与 pi remote、dsh-im 企微通道共用机器人。
+
+## 设置页
+
+插件带一个客户端模块：`package.json` 的 `dsh.client`（`platform: 'web'`，inject `dsh-client-connection` / `dsh-client-locale` / `dsh-client-ui-settings`）加 `exports['./client']` 指向 `dist/client.js`。DSH 把它打进 `index.html` 的 `__DSH_BOOT__` 启动图，从 `plugins/??dsh-remote-wecom/client.js` 提供；文件缺失会让客户端激活失败，所以安装必须 `npm run build`（`dist/` 不进 git，但在 `files` 里）。`client/` 是 React（外部化，用宿主的 react / react-dom），esbuild 打成 CJS 并包进 `window.__ModuleLoader__.load({id, factory})`。
+
+- 入口：`ctx.slots.inject('settings.section', ...)` 注册 id `dsh-remote-wecom`、标签「企微远程 / WeCom Remote」、`order: 30`（排在原生分区之后）。文案走 `ctx.locale`（zh / en）。样式是 `drw-` 前缀的类，只注入一次 `<style>`，只用 DSH 的 CSS 变量，照抄原生设置的行、按钮、开关、输入框尺寸，深浅色跟随宿主。二维码底固定白色，深色模式下也能扫。
+- 传输：host 侧 `ctx.connection.fetch.register({path: '/api/dsh-remote-wecom/settings', methods: ['POST']})`，放在 `ctx.effect` 里随插件注销。客户端 `ctx.connection.rpc.call('/api', 'dsh-remote-wecom/settings', {method, payload})`，信封 `client-request` / `server-response`，失败结果带 `error.details`。
+- 方法：`state`、`qrStart` / `qrCancel`、`saveCredentials`、`newBindCode`、`unbind`、`setPrefs`、`setAlias` / `removeAlias`、`restart`。都返回完整的 `state`（连接状态与原因、掩码后的 BotID 和主人、绑定码与到期时间、自动绑定窗口、偏好、别名、扫码状态），参数不对时返回 `{ok: false, error: {code: 'invalid', message}}`，前端在对应行内显示红字。前端每 2 秒拉一次 `state`（页面隐藏时跳过）。
+- 生效：写完配置立即重建遥控实例，并先刷新 mtime 快照，5 秒轮询不会再触发一次。改偏好、解绑、重新生成绑定码时不发「已重启」通知；「重启服务」和换凭证照常通知。请求最多等 2.5 秒重连完成再返回状态。
+
+### 扫码创建机器人
+
+`lib/core/qr-auth.mjs`：`generate` 拿 `scode` 和 `auth_url`（只接受 `https://work.weixin.qq.com`），host 用 `qrcode` 把 `auth_url` 编成 PNG data URL 下发；之后每 3 秒 `query_result`，成功即拿到 BotID / Secret。5 分钟过期，连续 3 次请求出错记为失败。同一时间只有一个轮询任务，插件停止时取消。`fetch` 和 base URL 可注入（插件配置 `qrBaseUrl` / `qrPollMs`，只允许 https 或回环 http），测试和预览都用假接口。
+
+状态：`idle` → `waiting`（有二维码）→ `connecting`（写凭证并重连）→ `idle`；或 `expired`（保留旧码作蒙层背景）/ `failed`。
+
+### 自动绑定
+
+扫码成功后写凭证（换了机器人就清掉原主人），并在 `bind.json` 里同时写 6 位绑定码和 `auto: {expiresAt: now + 10min}`。窗口内第一条单聊消息（不含 `enter_chat` 事件和群聊）的发送人成为主人，窗口外退回绑定码。错码 5 次锁定优先于自动绑定，已有主人时不生效。手动填写和命令行 `setup` 不开窗口。未绑定时重新生成绑定码会保留仍在有效期的窗口；解绑已有主人时不会重新打开窗口。
+
+### 安全取舍
+
+- 只接回环：路由校验 `Host` 与 `Origin` 都是回环地址，否则 403；只收 `POST` + `application/json`。另外还有 DSH 自己的登录 cookie（未登录 401）和 Host / Origin 检查。代价是把 DSH web 暴露到局域网时设置页不可用，只能用命令行。
+- 不回传 Secret：任何返回都不含 Secret，BotID 和主人 userid 都做掩码。前端不能显示或校对已存的 Secret，要换就重新扫码或重新填写。绑定码本身会显示在页面上，它本来就是要给人看的。
+- 自动绑定窗口：10 分钟内任何能给这个机器人发单聊的人，都可能抢先成为主人。可以接受是因为机器人刚由扫码人创建，还没人知道它。窗口只开一次，绑定后立即关闭；页面显示主人掩码，绑错了可以解绑重来。
 
 ## 验证
 
-- 单元测试：从 pi remote 搬来的宿主无关测试（传输、配置、别名、产物过滤）。
+- 单元测试：从 pi remote 搬来的宿主无关测试（传输、配置、别名、产物过滤），加上设置页的扫码流程、RPC 方法与路由校验、自动绑定。
+- 设置页端到端（`tests/e2e-settings.test.mjs`）：隔离的 dsh web，验证启动图里有客户端模块且提供的就是 `dist/client.js`、未登录 401 / 非回环 403、假扫码接口第 3 次轮询成功后连上假企微、群聊不认主而单聊认主、改偏好重连且不发重启通知、所有响应不含 Secret。界面用 `scripts/preview.mjs` 人工看。
 - 端到端：`devDependencies` 带 `@deepseek-ai/dsh@0.2.1-rc.2`，测试用隔离 `DSH_HOME` 起 `dsh --profile web --patch`，加载脚本化假 LLM（`tests/fixtures/mock-llm.mjs`，标题取首条消息的第一个词）、代替 Desktop 窗口发起电脑轮次的 `tests/fixtures/desktop-probe.mjs` 和本插件，中途重启一次 dsh 让旧会话变成历史会话，企微侧用 `ws` 假服务器（`wsUrl` 配置），覆盖绑定、活跃/历史/创建会话、投递与回传、停止、切模型与思考强度、压缩、状态、产物、审批与提问卡片、关注/取关、引用路由。
 - 真机：安装到 `~/.dsh/profiles/desktop`（profile `package.json` 加 `link:` 依赖与 bundle，用 Desktop 自带 pnpm 安装；CLI 拒绝改 desktop profile），重启 Desktop，用专用机器人走一遍主流程。
