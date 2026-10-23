@@ -4,6 +4,11 @@ export const STYLE_ID = 'dsh-remote-wecom/settings.css';
 
 export const CSS = String.raw`
 .drw-page { --drw-code: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, monospace); color: var(--dsw-alias-label-primary); font-size: 14px; line-height: 22px; padding-bottom: 8px; }
+.drw-main { height: 100%; min-height: 0; overflow: auto; box-sizing: border-box; padding: 48px clamp(16px, 4vw, 48px) 32px; }
+.drw-mainInner { max-width: 640px; margin: 0 auto; }
+.drw-open { display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border: .5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md, 8px); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; line-height: 20px; cursor: pointer; }
+.drw-open:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.drw-open:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
 .drw-page *, .drw-page *::before, .drw-page *::after { box-sizing: border-box; }
 .drw-head { display: flex; align-items: center; gap: 10px; min-height: 28px; margin: 0 0 6px; }
 .drw-title { margin: 0; font-size: 16px; line-height: 24px; font-weight: 500; }

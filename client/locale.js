@@ -1,5 +1,6 @@
 export const zh = {
   nav: '企微远程',
+  openSettings: '打开设置',
   title: '企微远程',
   'status.online': '已连接',
   'status.pending': '待绑定',
@@ -48,6 +49,7 @@ export const zh = {
 
 export const en = {
   nav: 'WeCom Remote',
+  openSettings: 'Open settings',
   title: 'WeCom Remote',
   'status.online': 'Connected',
   'status.pending': 'Awaiting owner',

@@ -11,6 +11,8 @@ const NS = 'dsh-remote-wecom';
 const ENDPOINT = 'dsh-remote-wecom/settings';
 const POLL_MS = 2000;
 const POLICIES = ['ask-then-allow', 'ask', 'allow'];
+const PACKAGE = 'dsh-remote-wecom';
+const MAIN_PANEL = 'dsh-remote-wecom';
 
 export const name = 'dsh-remote-wecom-settings';
 export const inject = ['slots', 'connection', 'locale'];
@@ -396,4 +398,26 @@ export function apply(ctx) {
     locale: NS,
     inject: () => ({}),
   }, Section)), 'dsh-remote-wecom: settings section');
+
+  // 设置弹窗没有公开「打开指定栏目」的接口：插件详情页的按钮改为在主区域打开同一面板。
+  // layout 与两个槽位都是可选的，缺失时只保留设置入口。
+  if (typeof ctx.inject !== 'function') return;
+  function MainPanel() {
+    return <div className="drw-main"><div className="drw-mainInner"><Section /></div></div>;
+  }
+  function OpenAction({subject, onOpen}) {
+    useSyncExternalStore(subscribe, revision, revision);
+    if (subject?.kind !== 'bundle' && subject?.kind !== 'row') return null;
+    if (subject.pkg?.name !== PACKAGE) return null;
+    if (subject.kind === 'row' && subject.row?.moduleName !== PACKAGE) return null;
+    return <button type="button" className="drw-open" onClick={onOpen}>{t('openSettings')}</button>;
+  }
+  ctx.inject(['layout'], pageCtx => pageCtx.slots.inject('main', () => {
+    const stopPage = pageCtx.slots.register({name: 'main', key: MAIN_PANEL, locale: NS, inject: () => ({})}, MainPanel);
+    const stopAction = pageCtx.slots.inject('plugins.detail.actions', () => pageCtx.slots.register({
+      name: 'plugins.detail.actions', id: `${MAIN_PANEL}-open`, order: 20, locale: NS,
+      inject: () => ({onOpen: () => pageCtx.layout.selectPanel(MAIN_PANEL)}),
+    }, OpenAction));
+    return () => { stopAction(); stopPage(); };
+  }));
 }
