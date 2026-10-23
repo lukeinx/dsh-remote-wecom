@@ -258,7 +258,7 @@ test('DSH + 插件 + 假企微：创建/活跃/历史/模型/停止/压缩/状�
     await waitText(/echo: desktop loud/, at);
   });
 
-  await t.test('电脑发起的轮次：提问推到手机，审批留在电脑', async () => {
+  await t.test('电脑发起的轮次：提问推到手机；关注时审批也推手机，取关后留在电脑', async () => {
     const sid = fs.readFileSync(path.join(data, '.current'), 'utf8').trim();
     const q = {questions: [{id: 'q1', question: 'Desk color?', options: [{label: 'Red'}, {label: 'Blue'}]}]};
     at = sent.length;
@@ -267,15 +267,53 @@ test('DSH + 插件 + 假企微：创建/活跃/历史/模型/停止/压缩/状�
     pick(card, x => x.startsWith('1. Red'));
     assert.match(await waitText(/任务完成 · alpha[\s\S]*tool done/, at, 30000), /Red/);
     const denied = path.join(ws, 'desk.md');
+    const write = JSON.stringify({file_path: denied, content: '# desk', sandbox_permissions: 'workspace-write', justification: 'desk write'});
+    at = sent.length;
+    await desktopPrompt(sid, 'desk-f', `/tool write ${write}`);
+    const ask = await waitCard(c => /^🔐/.test(c.main_title?.title || ''), at, 30000);
+    pick(ask, x => x === '拒绝');
+    await waitText(/任务完成 · alpha[\s\S]*tool done/, at, 30000);
+    assert.ok(!fs.existsSync(denied));
+    await waitText(/已取关/, say('取关'));
     const n = (await outline(sid)).length;
     at = sent.length;
-    await desktopPrompt(sid, 'desk-a', `/tool write ${JSON.stringify({file_path: denied, content: '# desk', sandbox_permissions: 'workspace-write', justification: 'desk write'})}`);
+    await desktopPrompt(sid, 'desk-a', `/tool write ${write}`);
     await until(async () => (await outline(sid)).length > n, 30000, 'desk approval turn start');
     await new Promise(r => setTimeout(r, 4000));
     assert.ok(!sent.slice(at).some(b => /^🔐/.test(cardOf(b)?.main_title?.title || '')), '电脑轮次的审批不推手机');
     assert.ok(!fs.existsSync(denied));
     await call('session', 'cancel', {request: {sessionId: sid}});
     await new Promise(r => setTimeout(r, 1000));
+  });
+
+  await t.test('插话：运行中的这一轮并入手机插话，结果只推一次', async () => {
+    at = say('/sleep 3000');
+    await waitText(/运行中 · alpha/, at);
+    await waitText(/已插话 · alpha/, say('插话 steer me'));
+    const done = await waitText(/任务完成 · alpha/, at, 30000);
+    assert.match(done, /echo: steer me/);
+    await delay(1000);
+    assert.equal(texts(at).filter(x => /任务完成 · alpha/.test(x)).length, 1);
+  });
+
+  await t.test('权限：手机切到 workspace-write，状态里反映出来', async () => {
+    const card = await waitCard(c => /切换权限/.test(c.main_title?.title || ''), say('权限 workspace-write'));
+    assert.equal(card.emphasis_content.title, 'workspace-write');
+    assert.match(await waitText(/空闲 · alpha/, say('状态')), /权限：workspace-write/);
+  });
+
+  await t.test('工作区：创建会话归入 Desktop 工作区；归档后手机发消息先取消归档', async () => {
+    const {workspace} = await call('workspace', 'create', {request: {path: ws}});
+    await waitCard(c => /切换工作区/.test(c.main_title?.title || '') && c.emphasis_content?.title?.startsWith(workspace.title.slice(0, 10)), say(`工作区 ${workspace.title}`));
+    at = say('创建后台会话 gamma third task');
+    await waitText(/任务完成 · gamma/, at, 30000);
+    const sid = fs.readFileSync(path.join(data, '.current'), 'utf8').trim();
+    const live = await waitCard(c => /活跃会话/.test(c.main_title?.title || ''), say('活跃会话'));
+    assert.ok(live.checkbox.option_list.some(o => o.text.startsWith(`gamma · ${workspace.title}`)), live.checkbox.option_list.map(o => o.text).join(' | '));
+    await call('workspace', 'archiveSession', {request: {sessionId: sid}});
+    at = say('after archive');
+    await waitText(/已取消归档 · gamma/, at);
+    assert.match(await waitText(/任务完成 · gamma/, at, 30000), /echo: after archive/);
   });
 
   await t.test('引用推送回复：消息进入被引用的会话并切换当前会话', async () => {

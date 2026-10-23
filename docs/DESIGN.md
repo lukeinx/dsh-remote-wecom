@@ -21,6 +21,9 @@ DeepSeek Harness.app ── host 进程
 |---|---|
 | launchd daemon + pi TUI 扩展，HTTP 长轮询 | 插件在 host 内直接调用会话控制器，无进程间协议 |
 | 终端会话（TUI）/ 后台会话（`pi --mode rpc`） | 都是 Desktop 里的会话；「创建会话」新建后 `open dsh://open` 把 Desktop 拉到前台，「创建后台会话」只新建 |
+| 新会话按目录开（`cd` 选目录） | 新会话按 Desktop 工作区开（`工作区` 选工作区或未分组）；会话只有带 `workspaceId` 创建才归入工作区 |
+| 会话没有归档、置顶 | 列表排除 Desktop 里已归档的会话、置顶在前；手机投递前先取消归档 |
+| 轮次只有人发起 | 定时提醒（`schedule`）与目标续跑（`goal`）会自己唤起轮次，按会话最近一次用户消息的来源决定是否推手机 |
 | 会话 jsonl 扫描 | `session/list` + projections（标题、turnOutline） |
 | tab-title 自动命名 | DSH 自带标题（`session/title` 事件） |
 | `ctx.ui.confirm` 等弹窗 | `approval/request`、`user-questions/request` waterfall |
@@ -35,8 +38,11 @@ DeepSeek Harness.app ── host 进程
 |---|---|
 | 会话列表 | `session/list` `{_request:{}}` → `items[{sessionId, updatedAt, agentAvailable, running, blank, cwd, origin?, parentSessionId?, projections}]`；条目自带 `projections.values`（标题、turnOutline）。host 重启后旧会话 `agentAvailable: false`，投递时自动激活 |
 | 会话投影 | `session/projections` `{request:{sessionId}}` → `values.{title, tokenUsage, contextPressure{pressureTokens, projectedTokens, contextWindow}, turnOutline[{turn, prompt, response}], modelSelection{lastUsed, next}}`；压缩后 `projectedTokens` 下降 |
-| 新建 | `session/create` `{request:{cwd}}` → `{sessionId}` |
-| 投递 | `session/prompt` `{request:{requestId, sessionId, mode:'queue', content:[{type:'text', text}]}}` → `{accepted}`；对未激活的历史会话会自动激活。运行中投递的消息成为紧接着的下一轮，不并入当前轮 |
+| 新建 | `session/create` `{request:{workspaceId}}` 或 `{request:{cwd}}` 或 `{request:{}}` → `{sessionId}`。`workspaceId` 与 `cwd` 互斥；只有带 `workspaceId` 才 attach 到工作区，只传 `cwd`（哪怕等于某个工作区目录）或都不传都进「未分组」，都不传时 cwd 取宿主默认目录 |
+| 投递 | `session/prompt` `{request:{requestId, sessionId, mode, content:[{type:'text', text}]}}` → `{accepted}`；对未激活的历史会话会自动激活。`mode:'queue'` 运行中投递的消息成为紧接着的下一轮；`mode:'steer'` 并入当前轮（同一轮里出现第二条 `source.kind:'user'` 的用户消息，`rpcId` 为插话的 requestId） |
+| 工作区 | `workspace/follow` 流式，参数 `{}`，首帧 `{type:'baseline', value:{items[{workspaceId, path, title, sessionIds}], archivedSessionIds, pinnedSessionIds}}`；items 即 Desktop 侧栏顺序，置顶数组最近置顶的在前 |
+| 取消归档 | `workspace/unarchiveSession` `{request:{sessionId}}` → `{archivedSessionIds}`。已归档会话的新轮次被 ArchivedSessionGate 拦下：只有 `turn/start` → `turn/end{reason.kind:'blocked'}`，中间没有用户消息 |
+| 权限预设 | 目录 `permissionPresets/catalog` `{}` → `{options[{value, name}], defaultPreset}`；切换 `commands/execute` `{agentId, line:'/permission <value>', submittedAttachments:[]}` → `{result:{kind:'success', text:'preset <value>'}}`；当前值在投影 `permissions.currentValue` |
 | 停止 | `session/cancel` `{request:{sessionId}}` → `{accepted}`，该轮以 `turn/end{reason.kind:'aborted'}` 结束 |
 | 模型目录 | `session/modelCatalog` `{}` → `{default, groups[{id, name, models[{id, name, reasoning{efforts[{id, name}], defaultEffort}}]}], routableProviders}` |
 | 切模型 / 思考强度 | `session/selectModel` `{request:{sessionId, provider, model, reasoningEffort?}}` → `{selected:{provider, model, reasoningEffort}}`，并发 `model/selection` 事件 |
@@ -49,7 +55,7 @@ DeepSeek Harness.app ── host 进程
 
 事件（`ctx.on(name, fn, { global: true })`）：
 
-- `session/event (session, event)`：`turn/start{turn}`、`user/message{source.kind, source.rpcId}`、`assistant/message{message.content[]}`、`tool/call{name, arguments}`、`tool/result{message.isError, meta.path}`、`turn/end{reason.kind: completed|aborted|error|max-tokens, reason.error.message}`、`session/title{title, source}`、`model/selection{provider, model, reasoningEffort}`。`user/message` 的 data 就是消息本身（`data.source`、`data.content`），混有 runtime-context 等系统注入消息，只认 `source.kind === 'user'`。一轮的顺序：`agent/inbox/spliced` → `api-session/status [sid, true]` → `turn/start` → `user/message` → … → `turn/end`。标题先来一条 `source.kind:'fallback'`（首条消息截断），模型起的标题随后再来一条。
+- `session/event (session, event)`：`turn/start{turn}`、`user/message{source.kind, source.rpcId}`（`source.kind` 除 `user` 外还有注入类 `runtime-context` / `skill-catalog` / `time-context`，以及宿主唤起的 `schedule` / `goal`）、`assistant/message{message.content[]}`、`tool/call{name, arguments}`、`tool/result{message.isError, meta.path}`、`turn/end{reason.kind: completed|aborted|error|max-tokens, reason.error.message}`、`session/title{title, source}`、`model/selection{provider, model, reasoningEffort}`。`user/message` 的 data 就是消息本身（`data.source`、`data.content`），混有 runtime-context 等系统注入消息，只认 `source.kind === 'user'`。一轮的顺序：`agent/inbox/spliced` → `api-session/status [sid, true]` → `turn/start` → `user/message` → … → `turn/end`。标题先来一条 `source.kind:'fallback'`（首条消息截断），模型起的标题随后再来一条。
 - `api-session/added (summary)`、`api-session/removed (sessionId)`、`api-session/status (sessionId, running)`。
 - `approval/request (req, next)`，注册时加 `prepend: true`：`req.{toolName, callId, reason, displayReason.zh, agent, signal}`，返回 `'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'`。会话 id 取 `req.agent.session.id ?? req.agent.id`。
 - `user-questions/request (req, next)`：`req.questions[{id, question, header, options[{label, description}], multiSelect}]`，返回 `{answers:[{id, selected:[label], custom?}]}`。
@@ -60,6 +66,9 @@ DeepSeek Harness.app ── host 进程
 
 - 每个 DSH 会话一个 `DshTarget`（替换 `TuiTarget` / `RpcTarget`），`kind = 'dsh'`，卡片类型文案「桌面会话」。「活跃会话」= `agentAvailable || running` 的非 subagent 会话；其余进「历史会话」。
 - 手机投递的 `requestId` 以 `wecom-` 开头。一轮的来源看该轮第一条 `source.kind === 'user'` 的 `user/message`：`rpcId` 带前缀为手机发起，否则为电脑发起（`local`）。
+- 首条是 `schedule` / `goal` 来源的轮次带 `trigger`：会话最近一次用户消息来自手机（记在 `phone-sessions.json`，跨重启）时按手机发起处理。
+- 同一轮里的第二条用户消息是插话：对应的手机 loop 标为并入（不单独回传），这一轮改为推回手机。
+- 没有任何消息就 `blocked` 结束的轮次 → `turnBlocked`：最早一条未开始的消息按失败收尾（会话已归档）。
 - 翻译关系（对应 pi remote daemon 的 HTTP 路由）：会话出现 → `/register`；该轮首条用户消息 → `/turn`；`tool/call` → `/activity`；`turn/end` + 累计的 `assistant/message` 文本 → `/result`；`api-session/removed` → `/unregister`。
 - `turn/end` 的 `aborted` 记为已停止，`error` 记为失败（`reason.error.message`）。
 
@@ -67,19 +76,22 @@ DeepSeek Harness.app ── host 进程
 
 | 命令 | DSH 实现 |
 |---|---|
-| `ls` 活跃会话 / `h` 历史会话 | `session/list` + projections；历史默认隐藏 subagent（`origin === 'subagent'` 或有 `parentSessionId`） |
-| `n` / `nb` 创建（后台）会话 | `session/create {request:{cwd}}`，再投递首条消息，等非 fallback 标题（`nameWaitMs`）；`n` 额外 `open dsh://open`（`openDesktop` 可关，屏幕锁定时跳过） |
+| `ls` 活跃会话 / `h` 历史会话 | `session/list` + projections + `workspace/follow` 首帧；默认隐藏 subagent（`origin === 'subagent'` 或有 `parentSessionId`）和已归档，`全部` 才显示；活跃列表置顶在前，其余按工作区顺序分组、未分组最后 |
+| `n` / `nb` 创建（后台）会话 | 位置 = 首个词（工作区名 / `未分组` / 别名 / 路径）或默认位置；工作区 → `{workspaceId}`，非工作区目录 → `{cwd}`，未分组 → `{}`。再投递首条消息，等非 fallback 标题（`nameWaitMs`）；`n` 额外 `open dsh://open`（`openDesktop` 可关，屏幕锁定时跳过） |
+| `cd` 工作区 | 列 `workspace/follow` 的工作区 + 未分组 + 不是工作区的别名目录，选中结果写 `.default-place`（`{workspaceId}` 或 `{cwd}`，没有文件 = 未分组）。不替用户在 Desktop 侧栏添加工作区 |
+| `steer` 插话 | 运行中 `session/prompt mode:'steer'`，空闲时同普通消息 |
+| `perm` 权限 | `permissionPresets/catalog` + `/permission <value>` |
 | `model` / `think` | `modelCatalog` + `selectModel`；思考强度取当前模型的 `reasoning.efforts` |
 | `compact` | `commands/execute '/compact'`，运行中拒绝；带说明时照常压缩，卡片提示说明未生效 |
 | `stop` | `session/cancel` |
 | `status` | projections：目录（分支）、模型·思考强度、上下文 `pressureTokens / contextWindow`、token 用量 |
 | `art` 产物 | `write` / `edit` 的 `tool/call.arguments.file_path` 与 `tool/result.meta.path`，`present` 的 `files[].path`，回复里链接给出的文件；来自实时事件，首次查看时用 `session/follow` 快照补扫；过滤规则沿用 pi remote（扩展名白名单、排除 git 跟踪文件、隐藏目录、临时目录） |
-| `cd` 目录别名、`关注` / `取关`、引用路由、待投递选会话卡片 | 宿主无关，原样保留 |
+| `关注` / `取关`、引用路由、待投递选会话卡片 | 宿主无关，原样保留；`关注` 额外打开「电脑发起的审批转手机」，`取关` 关闭 |
 | `restart` | 重启插件内的遥控服务（关传输、重载配置、重连），有任务运行时默认拒绝 |
 
 ### 弹窗
 
-- 与 pi remote 相同：审批只接手机发起的轮次，提问不限轮次（电脑发起的也推到手机）。电脑发起的审批、插件未运行、未绑定主人、企微断开时直接 `return next()`。
+- 审批接手机发起的轮次，以及 `关注` 后已挂上回传、未取关的电脑轮次（Desktop 关窗后任务仍在跑，没人点审批）；提问不限轮次。其余电脑发起的审批、插件未运行、未绑定主人、企微断开时直接 `return next()`。
 - 审批 → `openUiPrompt` 的 `confirm`：标题用 `displayReason.zh`（无则 `reason`），正文带工具名。允许 → `allowed-once`，拒绝 → `rejected`，取消 → `cancelled`；超时按 `remoteConfirm`（默认 `ask-then-allow`）。
 - 提问 → `question`：多题逐题推送，标题 `（i/n）题目`，`header` 作短标签，允许自己写（返回 `custom`），取消或超时按未回答处理。
 - 与 Desktop 窗口抢答：同时调 `next()` 让 Desktop 弹窗，两边谁先答用谁的。`req.signal` 换成插件私有的 AbortController，手机先答时只中止 Desktop 侧那一个等待；Desktop 先答时手机卡片作废（再点提示已处理）。`next()` 返回 `unavailable` / `cancelled`，或 1.5 秒内返回空答案，都表示没有窗口在答，只等手机。插件停止时未答的请求交回 `next()` 的结果。未绑定会话的请求先挂起，切过去时补推（与 pi remote 相同）。

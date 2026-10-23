@@ -11,14 +11,24 @@ const tick = (ms = 10) => new Promise(r => setTimeout(r, ms));
 const textOf = m => typeof m === 'string' ? m : m?.text || m?.fallback || '';
 
 /** 假宿主：记录调用；prompt 之后由测试用 onPrompt 模拟 DSH 事件。 */
-function fakeHost(sessions) {
+function fakeHost(sessions, ws = {items: [], archived: new Set(), pinned: []}) {
   const calls = [];
   const host = {
-    calls, onPrompt: null,
+    calls, onPrompt: null, ws, permission: 'read-only',
     async listSessions() { return sessions; },
-    async projections(sid) { return {title: sessions.find(s => s.sessionId === sid)?.title || null, modelSelection: {next: {provider: 'mock', model: 'echo', reasoningEffort: 'low'}}, contextPressure: {pressureTokens: 2000, projectedTokens: 2000, contextWindow: 100000}}; },
-    async createSession(cwd) { calls.push(['create', cwd]); sessions.push({sessionId: 's-new', cwd, agentAvailable: true}); return 's-new'; },
-    async prompt(sid, requestId, text) { calls.push(['prompt', sid, requestId, text]); setImmediate(() => host.onPrompt?.(sid, requestId, text)); },
+    async projections(sid) { return {title: sessions.find(s => s.sessionId === sid)?.title || null, permissions: {currentValue: host.permission}, modelSelection: {next: {provider: 'mock', model: 'echo', reasoningEffort: 'low'}}, contextPressure: {pressureTokens: 2000, projectedTokens: 2000, contextWindow: 100000}}; },
+    async createSession(place) {
+      calls.push(['create', place]);
+      const w = ws.items.find(x => x.id === place.workspaceId);
+      if (w) w.sessionIds.unshift('s-new');
+      sessions.push({sessionId: 's-new', cwd: w?.path || place.cwd || os.homedir(), agentAvailable: true});
+      return 's-new';
+    },
+    async prompt(sid, requestId, text, mode) { calls.push(['prompt', sid, requestId, text, mode]); setImmediate(() => host.onPrompt?.(sid, requestId, text, mode)); },
+    async workspaces() { return {items: ws.items.map(w => ({...w, sessionIds: [...w.sessionIds]})), archived: new Set(ws.archived), pinned: [...ws.pinned]}; },
+    async unarchive(sid) { calls.push(['unarchive', sid]); ws.archived.delete(sid); },
+    async permissionCatalog() { return [{value: 'read-only', name: 'read-only'}, {value: 'workspace-write', name: 'workspace-write'}]; },
+    async setPermission(sid, preset) { calls.push(['perm', sid, preset]); host.permission = preset; return {kind: 'success', text: `preset ${preset}`}; },
     async cancel(sid) { calls.push(['cancel', sid]); },
     async modelCatalog() { return {routableProviders: ['mock'], groups: [{id: 'mock', models: [{id: 'echo', name: 'Echo', reasoning: {efforts: [{id: 'low'}, {id: 'high'}], defaultEffort: 'low'}}, {id: 'echo2', name: 'Echo 2'}]}]}; },
     async selectModel(sid, sel) { calls.push(['select', sid, sel]); return sel; },
@@ -30,11 +40,11 @@ function fakeHost(sessions) {
 function fakeTransport(sent) {
   return () => ({connected: true, start() {}, stop() {}, drain() {}, bound: () => true, send(m) { sent.push(m); return Promise.resolve(true); }});
 }
-function fixture(t, {sessions, config = {}, onRestart = null} = {}) {
+function fixture(t, {sessions, wsState, config = {}, onRestart = null} = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-unit-'));
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-ws-'));
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({botId: 'b', secret: 's', ownerUserId: 'owner', openDesktop: false, nameWaitMs: 300, ...config}));
-  const host = fakeHost(sessions || [{sessionId: 's1', cwd: ws, agentAvailable: true, running: false, title: 'Alpha', prompts: ['第一句']}]);
+  const host = fakeHost(sessions || [{sessionId: 's1', cwd: ws, agentAvailable: true, running: false, title: 'Alpha', prompts: ['第一句']}], wsState);
   const sent = [];
   const remote = createRemote({host, dir, config: loadConfig(dir), createTransport: fakeTransport(sent), onRestart});
   remote.start();
@@ -153,7 +163,8 @@ test('创建会话：session/create 后投递首条，等模型标题，完成�
     setTimeout(() => { f.remote.title(sid, 'Final Name'); f.remote.output(sid, 'done'); f.remote.turnEnd(sid, {kind: 'completed'}); }, 50);
   };
   const card = await f.say('创建会话 写个脚本');
-  assert.deepEqual(f.host.calls[0], ['create', os.homedir()]);
+  assert.deepEqual(f.host.calls[0], ['create', {}]);
+  assert.match(JSON.stringify(card), /未分组/);
   assert.match(JSON.stringify(card), /Final Name/);
   await tick(80);
   assert.match(textOf(f.sent.at(-1)), /任务完成[\s\S]*Final Name[\s\S]*done/);
@@ -223,7 +234,7 @@ test('host 翻译：只认 source.kind=user 的首条消息定来源；标题区
   emit('turn/start', {turn: 1});
   emit('user/message', {source: {kind: 'runtime-context'}, content: [{type: 'text', text: 'ctx'}]});
   emit('user/message', {source: {kind: 'user', rpcId: 'wecom-x'}, content: [{type: 'text', text: '你好'}]});
-  emit('user/message', {source: {kind: 'user', rpcId: 'other'}, content: [{type: 'text', text: '不算'}]});
+  emit('user/message', {source: {kind: 'user', rpcId: 'other'}, content: [{type: 'text', text: '插话'}]});
   emit('assistant/message', {message: {content: [{type: 'text', text: 'echo'}, {type: 'tool-call'}]}});
   emit('tool/call', {name: 'write'});
   emit('session/title', {title: '你好', source: {kind: 'fallback'}});
@@ -232,6 +243,7 @@ test('host 翻译：只认 source.kind=user 的首条消息定来源；标题区
   const calls = log.filter(c => c[0] !== 'ingest');
   assert.deepEqual(calls, [
     ['turnBegin', 's1', {rpcId: 'wecom-x', text: '你好'}],
+    ['turnMerge', 's1', 'other'],
     ['output', 's1', 'echo'],
     ['activity', 's1', 'write'],
     ['title', 's1', '你好', false],
@@ -272,4 +284,180 @@ test('host 审批抢答：Desktop 立即 unavailable 时只等手机；手机先
   await tick();
   reply({index: 2, value: 'Blue'});
   assert.deepEqual(await q, {answers: [{id: 'q1', selected: ['Blue']}]});
+});
+
+const wsFixture = (dir, extra = {}) => ({items: [{id: 'w1', path: dir, title: 'Proj', sessionIds: ['s1']}], archived: new Set(), pinned: [], ...extra});
+const optionsOf = m => m?.card?.options?.map(o => o.text) || [];
+
+test('工作区：卡片列出 Desktop 工作区与未分组；创建会话按工作区名带 workspaceId，未分组和非工作区目录不带', async t => {
+  const proj = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-proj-')));
+  const loose = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-loose-')));
+  t.after(() => { fs.rmSync(proj, {recursive: true, force: true}); fs.rmSync(loose, {recursive: true, force: true}); });
+  const f = fixture(t, {wsState: wsFixture(proj), config: {dirAliases: {p: proj, l: loose}}});
+  const card = await f.say('工作区');
+  assert.deepEqual(optionsOf(card).map(x => x.split(' · ')[0]), ['Proj', '未分组', 'l']);
+  assert.ok(optionsOf(card).some(x => /^未分组 · ← 当前$/.test(x)));
+  await f.say('创建后台会话 Proj 第一句');
+  assert.deepEqual(f.host.calls.find(c => c[0] === 'create')[1], {workspaceId: 'w1'});
+  assert.ok(f.host.calls.some(c => c[0] === 'prompt' && c[3] === '第一句'));
+  f.host.calls.length = 0;
+  await f.say('创建后台会话 p');
+  assert.deepEqual(f.host.calls.find(c => c[0] === 'create')[1], {workspaceId: 'w1'});
+  f.host.calls.length = 0;
+  await f.say('创建后台会话 l');
+  assert.deepEqual(f.host.calls.find(c => c[0] === 'create')[1], {cwd: loose});
+  f.host.calls.length = 0;
+  assert.match(JSON.stringify(await f.say('工作区 proj')), /Proj/);
+  await f.say('创建后台会话 写代码');
+  assert.deepEqual(f.host.calls.find(c => c[0] === 'create')[1], {workspaceId: 'w1'});
+  assert.ok(f.host.calls.some(c => c[0] === 'prompt' && c[3] === '写代码'));
+  f.host.calls.length = 0;
+  await f.say('创建后台会话 未分组 散活');
+  assert.deepEqual(f.host.calls.find(c => c[0] === 'create')[1], {});
+  assert.match(textOf(await f.say('工作区 不存在的')), /没有叫/);
+});
+
+test('归档：活跃与历史默认不显示，「历史会话 全部」标出；手机投递前先取消归档；被拦下的轮次推失败', async t => {
+  const f = fixture(t, {
+    sessions: [
+      {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},
+      {sessionId: 's2', cwd: os.homedir(), agentAvailable: false, title: 'Archived'},
+    ],
+    wsState: {items: [], archived: new Set(['s2']), pinned: []},
+  });
+  assert.doesNotMatch(JSON.stringify(await f.say('活跃会话')), /Archived/);
+  assert.doesNotMatch(JSON.stringify(await f.say('历史会话')), /Archived/);
+  const all = await f.say('历史会话 全部');
+  assert.ok(optionsOf(all).some(x => /Archived（已归档）/.test(x)));
+  const opt = all.card.options.find(o => /Archived/.test(o.text));
+  await f.remote.handleCardCallback({taskId: all.card.task_id, optionId: opt.id});
+  f.host.onPrompt = (sid, id, text) => f.turn(sid, {rpcId: id, text});
+  const reply = textOf(await f.say('继续'));
+  assert.ok(f.host.calls.some(c => c[0] === 'unarchive' && c[1] === 's2'));
+  assert.ok(f.sent.some(m => /已取消归档/.test(textOf(m))));
+  assert.match(reply, /echo: 继续/);
+  f.host.ws.archived.add('s2');
+  f.host.unarchive = async () => { throw new Error('nope'); };
+  f.host.onPrompt = sid => { f.remote.sessionStatus(sid, true); f.remote.turnBlocked(sid); f.remote.sessionStatus(sid, false); };
+  const blocked = textOf(await f.say('再来'));
+  assert.match(blocked, /任务失败[\s\S]*归档/);
+});
+
+test('活跃列表：置顶在前，其余按工作区顺序分组、未分组最后', async t => {
+  const now = Date.now();
+  const f = fixture(t, {
+    sessions: [
+      {sessionId: 'a', cwd: os.homedir(), agentAvailable: true, title: 'Loose', updatedAt: now},
+      {sessionId: 'b', cwd: os.homedir(), agentAvailable: true, title: 'InW2', updatedAt: now - 1000},
+      {sessionId: 'c', cwd: os.homedir(), agentAvailable: true, title: 'InW1', updatedAt: now - 2000},
+      {sessionId: 'd', cwd: os.homedir(), agentAvailable: true, title: 'Pinned', updatedAt: now - 3000},
+    ],
+    wsState: {items: [{id: 'w1', path: '/x', title: 'W1', sessionIds: ['c', 'd']}, {id: 'w2', path: '/y', title: 'W2', sessionIds: ['b']}], archived: new Set(), pinned: ['d']},
+  });
+  const card = await f.say('活跃会话');
+  assert.deepEqual(optionsOf(card).map(x => x.split(' · ').slice(0, 2).join(' · ')), ['📌 Pinned · W1', 'InW1 · W1', 'InW2 · W2', 'Loose · 未分组']);
+});
+
+test('定时提醒：最近一次用户消息来自手机的会话推回手机，来自电脑的不推；归属写进文件', async t => {
+  const f = fixture(t, {sessions: [
+    {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},
+    {sessionId: 's2', cwd: os.homedir(), agentAvailable: true, title: 'Beta'},
+  ]});
+  await f.say('活跃会话');
+  await f.say('选择会话 1');
+  const bound = boundSid(f);
+  const other = bound === 's1' ? 's2' : 's1';
+  f.turn(other, {rpcId: `${PHONE_RPC_PREFIX}x`, text: '手机设的提醒'});
+  await tick(30);
+  f.remote.sessionStatus(other, true);
+  f.remote.turnBegin(other, {text: '[SCHEDULE REMINDER]', trigger: 'schedule'});
+  f.remote.output(other, '提醒结果');
+  f.remote.turnEnd(other, {kind: 'completed'});
+  await tick(30);
+  assert.match(textOf(f.sent.at(-1)), /定时任务完成[\s\S]*提醒结果/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.dir, 'phone-sessions.json'), 'utf8')), [other]);
+  f.turn(other, {rpcId: 'desk-1', text: '电脑上接着聊'});
+  await tick(30);
+  const mid = f.sent.length;
+  f.remote.turnBegin(other, {text: '[SCHEDULE REMINDER]', trigger: 'schedule'});
+  f.remote.output(other, '不该推');
+  f.remote.turnEnd(other, {kind: 'completed'});
+  await tick(30);
+  assert.equal(f.sent.length, mid);
+});
+
+test('关注后电脑发起的审批也转手机；取关后交回 Desktop', async t => {
+  const f = fixture(t);
+  await bindFirst(f);
+  f.remote.turnBegin('s1', {rpcId: 'desk-1', text: '电脑发起'});
+  assert.equal(f.remote.uiAsk('s1', {kind: 'confirm', reqId: 'a0', title: '写文件'}), null);
+  assert.match(textOf(await f.say('关注')), /审批也会发到手机/);
+  const h = f.remote.uiAsk('s1', {kind: 'confirm', reqId: 'a1', title: '写文件'});
+  assert.ok(h);
+  assert.ok(f.sent.some(m => m.card?.title?.includes('写文件')));
+  h.done();
+  await f.say('取关');
+  assert.equal(f.remote.uiAsk('s1', {kind: 'confirm', reqId: 'a2', title: '写文件'}), null);
+  f.remote.turnEnd('s1', {kind: 'completed'});
+});
+
+test('插话：运行中走 steer 并入当前轮，这一轮结果推回手机且只推一次；空闲时按普通消息', async t => {
+  const f = fixture(t, {sessions: [
+    {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},
+    {sessionId: 's2', cwd: os.homedir(), agentAvailable: true, title: 'Beta'},
+  ]});
+  await f.say('活跃会话');
+  await f.say('选择会话 1');
+  const sid = boundSid(f);
+  await f.say('取关');
+  f.remote.sessionStatus(sid, true);
+  f.remote.turnBegin(sid, {rpcId: 'desk-1', text: '电脑上的长任务'});
+  f.host.onPrompt = (s, id) => f.remote.turnMerge(s, id);
+  const reply = textOf(await f.say('插话 顺便改下标题'));
+  assert.match(reply, /已插话/);
+  assert.equal(f.host.calls.find(c => c[0] === 'prompt')[4], 'steer');
+  await tick(20);
+  const before = f.sent.length;
+  f.remote.output(sid, '都改好了');
+  f.remote.turnEnd(sid, {kind: 'completed'});
+  f.remote.sessionStatus(sid, false);
+  await tick(30);
+  const done = f.sent.slice(before).map(textOf).filter(s => /任务完成/.test(s));
+  assert.equal(done.length, 1);
+  assert.match(done[0], /都改好了/);
+  f.host.onPrompt = (s, id, text) => f.turn(s, {rpcId: id, text});
+  assert.match(textOf(await f.say('插话 空闲时')), /echo: 空闲时/);
+  assert.equal(f.host.calls.filter(c => c[0] === 'prompt').at(-1)[4], 'queue');
+});
+
+test('权限：卡片列出预设并标当前；按名称切换走 /permission，状态里显示', async t => {
+  const f = fixture(t);
+  await bindFirst(f);
+  const card = await f.say('权限');
+  assert.deepEqual(optionsOf(card), ['read-only · ← 当前', 'workspace-write']);
+  assert.match(JSON.stringify(await f.say('权限 workspace')), /workspace-write/);
+  assert.deepEqual(f.host.calls.find(c => c[0] === 'perm'), ['perm', 's1', 'workspace-write']);
+  assert.match(textOf(await f.say('状态')), /权限：workspace-write/);
+  assert.match(textOf(await f.say('权限 root')), /没有这个预设/);
+});
+
+test('host 翻译：blocked 空轮次报 turnBlocked；定时提醒带 trigger', () => {
+  const handlers = new Map();
+  const ctx = {connection: {createPeer: () => ({})}, typertGateway: {invoke: async () => ({})}, on(n, fn) { handlers.set(n, fn); }};
+  const log = [];
+  const remote = new Proxy({stopped: false}, {get: (o, k) => k in o ? o[k] : (...a) => { log.push([k, ...a]); return null; }});
+  createDshHost(ctx, () => remote);
+  const emit = (type, data) => handlers.get('session/event')({id: 's1'}, {type, seq: 1, data});
+  emit('turn/start', {turn: 1});
+  emit('turn/end', {reason: {kind: 'blocked'}});
+  emit('turn/start', {turn: 2});
+  emit('turn/end', {reason: {kind: 'completed'}});
+  emit('turn/start', {turn: 3});
+  emit('user/message', {source: {kind: 'schedule'}, content: [{type: 'text', text: '[SCHEDULE REMINDER]'}]});
+  emit('turn/end', {reason: {kind: 'completed'}});
+  assert.deepEqual(log.filter(c => c[0] !== 'ingest'), [
+    ['turnBlocked', 's1'],
+    ['turnBegin', 's1', {rpcId: '', text: '[SCHEDULE REMINDER]', trigger: 'schedule'}],
+    ['turnEnd', 's1', {kind: 'completed', error: undefined}],
+  ]);
 });
