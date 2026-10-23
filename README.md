@@ -20,13 +20,13 @@
 `desktop` profile 只归 Desktop 管，`dsh plugin --profile desktop add` 会报 `managed exclusively by the Electron application`。先退出 Desktop，再手动加进 profile：
 
 ```sh
-cd dsh-remote-wecom && npm install
+cd dsh-remote-wecom && npm install && npm run build   # build 生成设置页前端 dist/client.js（不进 git，缺了 Desktop 会加载失败）
 cd ~/.dsh/profiles/desktop
 # package.json：dependencies 加 "dsh-remote-wecom": "link:<本仓库绝对路径>"，dsh.profile.bundles 末尾加 "dsh-remote-wecom"
 node "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/primary-runtime/dependencies/pnpm/bin/pnpm.mjs" install
 ```
 
-然后启动 DeepSeek Harness Desktop。改了插件代码要重启 Desktop 才生效（配置变化不用）。
+然后启动 DeepSeek Harness Desktop。改了插件代码（含重新 `npm run build` 的设置页）要重启 Desktop 才生效，配置变化不用。
 
 ### Desktop 离线看门狗（可选，macOS）
 
@@ -47,12 +47,20 @@ node bin/dsh-remote.mjs watchdog uninstall
 
 ## 配置与绑定
 
+推荐在 Desktop 里完成：**设置 → 企微远程**。
+
+1. 页面显示二维码，用企业微信扫码并确认，自动创建智能机器人并写入 BotID / Secret（`config.json`，权限 600），插件随即连接。
+2. 扫码成功后 10 分钟内，在企业微信里给这个机器人发任意一条单聊消息，发送人即成为主人。页面同时给出 6 位备用绑定码，自动绑定窗口过了也可以发绑定码完成绑定。之后只接主人的单聊消息。
+3. 绑定后在同一页可以：重新扫码换机器人、解绑或重新生成绑定码、改确认超时策略与秒数、开关「新建会话时打开 Desktop」、管理目录别名、重启遥控服务。改动即时保存、立即生效。
+
+扫不了码时，页面上的「手动填写 BotID」可以直接输入已有机器人的 BotID / Secret。也可以用命令行（结果相同）：
+
 ```sh
 node bin/dsh-remote.mjs setup                         # 交互输入 BotID / Secret
 node bin/dsh-remote.mjs setup --bot-id ID --secret S  # 非交互
 ```
 
-`setup` 写入 `config.json`（权限 600）并打印 6 位绑定码。在企业微信里打开与机器人的单聊，发送绑定码，第一个发对的人成为主人；之后只接主人的单聊消息。运行中的插件每 5 秒检查一次 `config.json` / `bind.json`，变化后自动重连，不必重启 Desktop。
+`setup` 写入 `config.json` 并打印 6 位绑定码，在机器人单聊里发送绑定码，第一个发对的人成为主人。运行中的插件每 5 秒检查一次 `config.json` / `bind.json`，命令行改动后自动重连，不必重启 Desktop。
 
 | 命令 | 作用 |
 |---|---|
@@ -105,7 +113,7 @@ node bin/dsh-remote.mjs setup --bot-id ID --secret S  # 非交互
 
 中文别名需要与参数用空白字符分隔：`模型 high` 是命令，`模型high` 会当作普通消息发出。
 
-**电脑**：见上面的「配置与绑定」，没有 pi 里的 `/remote`、`/tabmodel`、`/tabname`（会话名由 DSH 自动生成）。
+**电脑**：在「设置 → 企微远程」里管理，见上面的「配置与绑定」；没有 pi 里的 `/remote`、`/tabmodel`、`/tabname`（会话名由 DSH 自动生成）。
 
 其他行为：
 
@@ -128,12 +136,21 @@ node bin/dsh-remote.mjs setup --bot-id ID --secret S  # 非交互
 
 ```sh
 npm install
+npm run build     # 打包设置页前端 client/ → dist/client.js
 npm test          # 单元测试
-npm run check     # 全部源文件语法检查 + 单元测试
-npm run test:e2e  # 用临时 DSH_HOME 起隔离的 dsh --profile web + 假 LLM + 假企微，约 20 秒
+npm run check     # build + 全部源文件语法检查 + 单元测试
+npm run test:e2e  # build 后用临时 DSH_HOME 起隔离的 dsh --profile web + 假 LLM + 假企微 + 假扫码接口，约 30 秒
 ```
 
 端到端测试不碰 `~/.dsh`；会在 `$HOME` 下建一个临时工作目录（产物过滤会排除系统临时目录），结束时删除。
+
+预览设置页（不碰 Desktop 和 `~/.dsh`，不请求真实扫码接口）：
+
+```sh
+node scripts/preview.mjs --state unconfigured   # 或 bound / unbound；--port 指定端口，默认随机
+```
+
+脚本用临时 `DSH_HOME` 起 web 版 DSH，接假企微和假扫码接口（第 3 次轮询返回成功），打印带 `?token=` 的地址，第一次必须用这个地址打开，之后浏览器靠 cookie 免 token。打开后点「继续」关掉预览版说明，再点「更多 → 设置 → 企微远程」。在终端输入一行文字，等于用户 alice 在企微单聊里发给机器人，用来走扫码后的自动绑定。Ctrl-C 退出并删除临时目录。
 
 ## 许可
 

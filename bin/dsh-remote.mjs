@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import {parseArgs} from 'node:util';
-import {BIND_FILE, BIND_TTL_MS, CONFIG_FILE, VERSION, WELCOME_FILE, createBindCode, defaultDataDir, hasCredentials, loadConfig, saveConfig} from '../lib/core/config.mjs';
+import {BIND_FILE, BIND_TTL_MS, CONFIG_FILE, VERSION, applyCredentials, defaultDataDir, hasCredentials, loadConfig, readUserConfig, resetOwner} from '../lib/core/config.mjs';
 import {checkName, expandDir, loadAliases, missingDirs, saveAliases, tildeDir} from '../lib/core/aliases.mjs';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
@@ -24,10 +24,6 @@ const USAGE = `dsh-remote-wecom ${VERSION}
 
 const LOG_TAIL = 20;
 
-function readUser(dir) {
-  try { return JSON.parse(fs.readFileSync(path.join(dir, CONFIG_FILE), 'utf8')); }
-  catch (e) { if (e.code === 'ENOENT') return {}; throw new Error('config.json 不是合法 JSON，请检查或删除后重新 setup'); }
-}
 function printCode(code) {
   console.log(`\n绑定码：${code}（${BIND_TTL_MS / 60000} 分钟内有效）`);
   console.log('在企业微信里打开与该机器人的单聊，发送这 6 位数字完成绑定。');
@@ -39,7 +35,7 @@ async function prompt(question, {secret = false} = {}) {
 }
 
 async function setup(dir, values) {
-  const user = readUser(dir);
+  const user = readUserConfig(dir);
   let botId = values['bot-id'];
   let secret = values.secret;
   if (!botId && !secret) {
@@ -49,28 +45,20 @@ async function setup(dir, values) {
     process.stdout.write('\n');
   }
   if (!botId || !secret) throw new Error('BotID 和 Secret 都需要提供');
-  const sameBot = user.botId === botId;
-  const cfg = {...user, botId, secret, ownerUserId: sameBot ? user.ownerUserId || '' : ''};
-  saveConfig(dir, cfg);
-  fs.rmSync(path.join(dir, WELCOME_FILE), {force: true});
+  const {bound, code} = applyCredentials(dir, {botId, secret});
   console.log(`配置已保存：${path.join(dir, CONFIG_FILE)}`);
-  if (cfg.ownerUserId) {
+  if (bound) {
     console.log('已绑定主人，保持不变；需要换绑时执行 dsh-remote-wecom bind。');
     return;
   }
-  printCode(createBindCode(dir));
+  printCode(code);
   console.log('运行中的 DeepSeek Harness 会在约 5 秒内自动连接；若未安装插件，请先按 README 安装并重启 Desktop。');
 }
 
 function bind(dir) {
-  const user = readUser(dir);
-  if (!hasCredentials({botId: user.botId, secret: user.secret})) throw new Error('还没有配置机器人，请先运行 dsh-remote-wecom setup');
-  if (user.ownerUserId) {
-    saveConfig(dir, {...user, ownerUserId: ''});
-    fs.rmSync(path.join(dir, WELCOME_FILE), {force: true});
-    console.log('已解除原主人的绑定。');
-  }
-  printCode(createBindCode(dir));
+  const {unbound, code} = resetOwner(dir);
+  if (unbound) console.log('已解除原主人的绑定。');
+  printCode(code);
 }
 
 function status(dir) {
