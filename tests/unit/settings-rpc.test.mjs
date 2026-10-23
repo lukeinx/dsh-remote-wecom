@@ -15,7 +15,7 @@ async function until(fn, ms = 3000) {
   throw new Error('timed out');
 }
 
-function setup(t, user = null, {statuses = ['waiting', 'waiting', 'success'], intervalMs = 5} = {}) {
+function setup(t, user = null, {statuses = ['waiting', 'waiting', 'success'], intervalMs = 5, getWorkspaces = null} = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-settings-'));
   t.after(() => fs.rmSync(dir, {recursive: true, force: true}));
   if (user) fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(user), {mode: 0o600});
@@ -32,7 +32,7 @@ function setup(t, user = null, {statuses = ['waiting', 'waiting', 'success'], in
   const qr = createQrFlow({auth: createQrAuth({fetch}), encode: async () => 'data:image/png;base64,AA', intervalMs,
     onSuccess: qrSuccessWriter({dir, reload, autoBindMs: AUTO_BIND_TTL_MS})});
   t.after(() => qr.dispose());
-  const call = createSettingsHandler({dir, getRemote: () => remote, getBootError: () => '', reload, qr});
+  const call = createSettingsHandler({dir, getRemote: () => remote, getBootError: () => '', reload, qr, getWorkspaces});
   const read = () => JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
   return {dir, call, reloads, read, qr, setRemote: r => { remote = r; }};
 }
@@ -126,6 +126,35 @@ test('setAlias / removeAlias：复用别名校验，不重载', async t => {
   r = await s.call('removeAlias', {name: 'home'});
   assert.deepEqual(r.value.aliases, [{name: 'proj', dir: '~/Vibe'}]);
   assert.match((await s.call('removeAlias', {name: 'nope'})).error.message, /没有别名/);
+  assert.deepEqual(s.reloads, []);
+});
+
+test('新会话位置：宿主不支持工作区时隐藏；选工作区写 .default-place，未分组删文件，工作区消失回到未分组', async t => {
+  assert.equal((await setup(t, {botId: 'bot-1', secret: SECRET}).call('state', {})).value.place, null);
+  const wsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-ws-'));
+  t.after(() => fs.rmSync(wsDir, {recursive: true, force: true}));
+  let items = [{id: 'w1', path: wsDir, title: 'App'}];
+  const s = setup(t, {botId: 'bot-1', secret: SECRET}, {getWorkspaces: async () => ({items})});
+  const file = path.join(s.dir, '.default-place');
+  let r = await s.call('state', {});
+  assert.deepEqual(r.value.place, {current: 'none', options: [{value: 'ws:w1', label: 'App'}, {value: 'none', label: ''}]});
+  r = await s.call('setPlace', {value: 'ws:w1'});
+  assert.equal(r.value.place.current, 'ws:w1');
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {workspaceId: 'w1'});
+  assert.match((await s.call('setPlace', {value: 'ws:gone'})).error.message, /不存在/);
+  r = await s.call('setAlias', {name: 'app', dir: wsDir});
+  assert.deepEqual(r.value.aliases.find(a => a.name === 'app')?.workspace, true);
+  r = await s.call('setPlace', {value: 'none'});
+  assert.equal(r.value.place.current, 'none');
+  assert.equal(fs.existsSync(file), false);
+  fs.writeFileSync(file, JSON.stringify({cwd: wsDir}));
+  r = await s.call('state', {});
+  assert.equal(r.value.place.current, `dir:${wsDir}`);
+  assert.equal((await s.call('setPlace', {value: `dir:${wsDir}`})).ok, true);
+  items = [];
+  fs.writeFileSync(file, JSON.stringify({workspaceId: 'w1'}));
+  await s.call('setPlace', {value: 'ws:none-such'});
+  assert.equal((await s.call('state', {})).value.place.current, 'none');
   assert.deepEqual(s.reloads, []);
 });
 
