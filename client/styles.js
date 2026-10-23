@@ -31,7 +31,6 @@ export const CSS = String.raw`
 .drw-error { color: var(--dsw-alias-state-error-primary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; text-align: right; }
 .drw-value { color: var(--dsw-alias-label-secondary); font-family: var(--drw-code); font-size: 13px; letter-spacing: .02em; }
 .drw-muted { color: var(--dsw-alias-label-tertiary); font-size: 13px; }
-.drw-countdown { color: var(--dsw-alias-label-tertiary); font-family: var(--drw-code); font-size: 12px; font-variant-numeric: tabular-nums; }
 .drw-code { display: inline-flex; gap: .45em; font-family: var(--drw-code); font-size: 24px; line-height: 30px; font-weight: 500; letter-spacing: .1em; font-variant-numeric: tabular-nums; }
 .drw-confirmText { color: var(--dsw-alias-state-error-primary); font-size: 12px; line-height: 18px; }
 
@@ -88,31 +87,16 @@ export const CSS = String.raw`
 .drw-spinner { width: 18px; height: 18px; border: 2px solid var(--dsw-alias-border-l3); border-top-color: var(--dsw-alias-label-secondary); border-radius: 50%; animation: drw-spin .9s linear infinite; }
 .drw-center { display: grid; place-items: center; min-height: 160px; gap: 10px; color: var(--dsw-alias-label-secondary); font-size: 13px; }
 
-.drw-fold { display: inline-flex; align-items: center; gap: 6px; margin-left: -4px; padding: 2px 4px; border: none; border-radius: var(--dsw-radius-sm, 6px); background: none; color: inherit; font: inherit; cursor: pointer; }
-.drw-fold:hover { color: var(--dsw-alias-label-primary); }
-.drw-fold svg { color: var(--dsw-alias-label-tertiary); transform: rotate(-90deg); transition: transform .12s ease; }
-.drw-fold[aria-expanded=true] svg { transform: none; }
-.drw-count { color: var(--dsw-alias-label-tertiary); font-weight: 400; font-variant-numeric: tabular-nums; }
-.drw-tag { flex: none; padding: 0 6px; border-radius: var(--dsw-radius-sm, 6px); background: var(--dsw-alias-bg-module-platform); color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 18px; white-space: nowrap; }
-.drw-alias { min-height: 44px; padding: 6px 0; }
-.drw-aliasName { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--drw-code); font-size: 13px; }
-.drw-aliasDir { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-family: var(--drw-code); font-size: 12px; direction: rtl; text-align: left; }
-.drw-aliasForm { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: .5px solid var(--dsw-alias-border-l2); }
-.drw-aliasForm .drw-input:first-child { flex: 0 0 120px; }
-.drw-aliasForm .drw-input:nth-child(2) { flex: 1; }
 .drw-foot { display: flex; align-items: center; gap: 12px; margin-top: 24px; }
 
 @keyframes drw-spin { to { transform: rotate(360deg); } }
 @keyframes drw-pulse { 50% { opacity: .55; } }
-@media (prefers-reduced-motion: reduce) { .drw-spinner, .drw-skeleton { animation: none; } .drw-switch > span, .drw-fold svg { transition: none; } }
-@media (max-width: 560px) {
+@media (prefers-reduced-motion: reduce) { .drw-spinner, .drw-skeleton { animation: none; } .drw-switch > span, @media (max-width: 560px) {
   .drw-row { flex-wrap: wrap; gap: 8px 16px; }
   .drw-rowMain { align-items: flex-start; width: 100%; }
   .drw-rowControl { justify-content: flex-start; }
   .drw-error { text-align: left; }
-  .drw-aliasForm { flex-wrap: wrap; }
-  .drw-aliasForm .drw-input:first-child { flex: 1 1 100%; }
-}
+    }
 @media (pointer: coarse) { .drw-btn[data-size=sm] { min-height: 36px; } .drw-input, .drw-select select { min-height: 40px; font-size: 16px; } }
 `;
 

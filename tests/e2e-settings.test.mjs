@@ -102,8 +102,6 @@ test('设置页：前端加载、/api 鉴权、扫码创建机器人、自动认
     assert.equal(r.ok, false);
     assert.ok(r.error.details);
     assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'config.json'), 'utf8')).remoteConfirmTimeoutMs, 90000);
-    r = await call('setAlias', {name: 'tmp', dir: tmp});
-    assert.ok(r.value.aliases.some(a => a.name === 'tmp'));
     await until(async () => (await call('state')).value.connection.connected, 15000, 'connected again');
     assert.ok(!wecom.state.sent.some(b => /已重启/.test(b?.markdown?.content || '')), '改偏好不发重启通知');
   });

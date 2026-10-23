@@ -45,7 +45,7 @@ test('打码：短串保留首尾，长串保留 4 位', () => {
   assert.equal(mask('aibABCDEFGHIJKLMN'), 'aibA••••KLMN');
 });
 
-test('state：未配置时给出原因和默认偏好', async t => {
+test('state：未配置时给出原因和默认偏好，不再下发目录别名', async t => {
   const s = setup(t);
   const r = await s.call('state', {});
   assert.equal(r.ok, true);
@@ -53,7 +53,8 @@ test('state：未配置时给出原因和默认偏好', async t => {
   assert.deepEqual(r.value.connection, {connected: false, reason: '未配置机器人'});
   assert.deepEqual(r.value.qr, {state: 'idle'});
   assert.equal(r.value.prefs.remoteConfirm, 'ask-then-allow');
-  assert.deepEqual(r.value.aliases, [{name: 'home', dir: '~'}]);
+  assert.equal('aliases' in r.value, false);
+  assert.equal((await s.call('setAlias', {name: 'x', dir: '~'})).error.code, 'bad-request');
   assert.match(r.value.version, /^\d+\.\d+\.\d+/);
 });
 
@@ -117,18 +118,6 @@ test('setPrefs：按 config.mjs 规则校验，只写传入字段，静默重载
   noSecret(r);
 });
 
-test('setAlias / removeAlias：复用别名校验，不重载', async t => {
-  const s = setup(t, {botId: 'bot-1', secret: SECRET});
-  let r = await s.call('setAlias', {name: 'Proj', dir: path.join(os.homedir(), 'Vibe')});
-  assert.deepEqual(r.value.aliases, [{name: 'home', dir: '~'}, {name: 'proj', dir: '~/Vibe'}]);
-  assert.equal((await s.call('setAlias', {name: 'has space', dir: '~'})).ok, false);
-  assert.equal((await s.call('setAlias', {name: 'x', dir: ' '})).ok, false);
-  r = await s.call('removeAlias', {name: 'home'});
-  assert.deepEqual(r.value.aliases, [{name: 'proj', dir: '~/Vibe'}]);
-  assert.match((await s.call('removeAlias', {name: 'nope'})).error.message, /没有别名/);
-  assert.deepEqual(s.reloads, []);
-});
-
 test('新会话位置：宿主不支持工作区时隐藏；选工作区写 .default-place，未分组删文件，工作区消失回到未分组', async t => {
   assert.equal((await setup(t, {botId: 'bot-1', secret: SECRET}).call('state', {})).value.place, null);
   const wsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-ws-'));
@@ -142,8 +131,6 @@ test('新会话位置：宿主不支持工作区时隐藏；选工作区写 .def
   assert.equal(r.value.place.current, 'ws:w1');
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {workspaceId: 'w1'});
   assert.match((await s.call('setPlace', {value: 'ws:gone'})).error.message, /不存在/);
-  r = await s.call('setAlias', {name: 'app', dir: wsDir});
-  assert.deepEqual(r.value.aliases.find(a => a.name === 'app')?.workspace, true);
   r = await s.call('setPlace', {value: 'none'});
   assert.equal(r.value.place.current, 'none');
   assert.equal(fs.existsSync(file), false);

@@ -47,9 +47,6 @@ const Chevron = () => (
 const RefreshIcon = () => (
   <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.76-4.24M16 4v3.5h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
 );
-const CloseIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 3.5l7 7m0-7-7 7" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
-);
 
 function Row({label, error, children, className = ''}) {
   return (
@@ -234,52 +231,6 @@ function PlaceControl({place, act, busy, t}) {
   );
 }
 
-function Aliases({aliases, act, busy, errors, t}) {
-  const [open, setOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState('');
-  const [dir, setDir] = useState('');
-  const nameRef = useRef(null);
-  useEffect(() => { if (adding) nameRef.current?.focus(); }, [adding]);
-  const close = () => { setAdding(false); setName(''); setDir(''); };
-  const submit = async e => {
-    e.preventDefault();
-    if (await act('alias', 'setAlias', {name, dir})) close();
-  };
-  return (
-    <div className="drw-group">
-      <div className="drw-groupHead">
-        <button type="button" className="drw-fold" aria-expanded={open} onClick={() => { setOpen(v => !v); close(); }}>
-          {t('alias.title')}{aliases.length ? <span className="drw-count">{aliases.length}</span> : null}<Chevron />
-        </button>
-        {open && !adding ? <Button size="sm" onClick={() => setAdding(true)}>{t('alias.add')}</Button> : null}
-      </div>
-      {!open ? null : adding ? (
-        <form className="drw-aliasForm" onSubmit={submit} onKeyDown={e => { if (e.key === 'Escape') close(); }}>
-          <input ref={nameRef} className="drw-input" placeholder={t('alias.name')} aria-label={t('alias.name')} spellCheck={false}
-            value={name} onChange={e => setName(e.target.value)} />
-          <input className="drw-input" placeholder="~/Projects/app" aria-label={t('alias.dir')} spellCheck={false}
-            value={dir} onChange={e => setDir(e.target.value)} />
-          <Button type="submit" variant="primary" size="sm" disabled={busy || !name.trim() || !dir.trim()}>{t('save')}</Button>
-          <Button size="sm" onClick={close}>{t('cancel')}</Button>
-        </form>
-      ) : null}
-      {open && errors.alias ? <div className="drw-error" role="alert" style={{textAlign: 'left', padding: '6px 0'}}>{errors.alias}</div> : null}
-      {!open ? null : aliases.length ? aliases.map(a => (
-        <div key={a.name} className="drw-row drw-alias">
-          <span className="drw-aliasName" title={a.name}>{a.name}</span>
-          <span className="drw-rowControl" style={{flexWrap: 'nowrap'}}>
-            {a.workspace ? <span className="drw-tag">{t('alias.isWorkspace')}</span> : null}
-            <span className="drw-aliasDir" title={a.dir}><bdi>{a.dir}</bdi></span>
-            <Button className="drw-icon" size="sm" aria-label={`${t('alias.remove')} ${a.name}`} title={t('alias.remove')} disabled={busy}
-              onClick={() => act('alias', 'removeAlias', {name: a.name})}><CloseIcon /></Button>
-          </span>
-        </div>
-      )) : adding ? null : <div className="drw-row drw-alias"><span className="drw-muted">{t('alias.empty')}</span></div>}
-    </div>
-  );
-}
-
 function Configured({s, now, act, busy, errors, setError, t}) {
   return (
     <Fragment>
@@ -306,7 +257,6 @@ function Configured({s, now, act, busy, errors, setError, t}) {
             onChange={v => act('open', 'setPrefs', {openDesktop: v})} />
         </Row>
       </div>
-      <Aliases aliases={s.aliases} act={act} busy={busy.alias} errors={errors} t={t} />
       <div className="drw-foot">
         <Button variant="outline" disabled={busy.restart} onClick={() => act('restart', 'restart')}>
           {busy.restart ? t('restarting') : t('restart')}
