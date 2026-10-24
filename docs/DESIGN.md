@@ -104,6 +104,16 @@ DeepSeek Harness.app ── host 进程
 ## 配置与绑定
 
 - 数据目录 `$DSH_HOME/integrations/dsh-remote-wecom/`：`config.json`（`botId`、`secret`、`ownerUserId` 等）、`bind.json`、`cards.json`、`seen.json`、`aliases.json`、`.default-place`、`phone-sessions.json`、`outbox/`、`inbox/`、`alive.json`、`watchdog.json`、`spool/`、`bridge.log`、`watchdog.log`。
+- `config.json` 可选项：
+
+  | 字段 | 默认 | 说明 |
+  |---|---|---|
+  | `remoteConfirm` | `ask-then-allow` | 手机发起的任务里，审批转企微卡片；超时后 `ask-then-allow` 允许、`ask` 拒绝；`allow` 不问直接允许 |
+  | `remoteConfirmTimeoutMs` | `600000` | 审批与提问的等待上限（1 秒到 1 天） |
+  | `openDesktop` | `false` | 「创建会话」后用 `open dsh://open` 把 Desktop 窗口拉到前台 |
+  | `nameWaitMs` | `10000` | 创建会话后等模型起标题的时间 |
+  | `inboxDir` | `<数据目录>/inbox` | 附件落地目录 |
+  | `dirAliases` | `{"home": "~"}` | 没有 `aliases.json` 时使用的初始目录别名 |
 - 首选 Desktop「设置 → 企微远程」扫码（见下节）；命令行是后备：`node bin/dsh-remote.mjs setup` 写入 BotID / Secret 并生成 6 位绑定码，`bind` 解除原主人并重新生成绑定码，`status` 看状态，`alias` 管理目录别名。插件约每 5 秒检查 `config.json` / `bind.json` 的 mtime，变化后停掉并重建遥控实例（插件自己绑定主人时的写入不算），不必重启 Desktop。
 - 同一 BotID 只能一条长连接：不能与 pi remote、dsh-im 企微通道共用机器人。
 
