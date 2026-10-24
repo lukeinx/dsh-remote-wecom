@@ -6,7 +6,7 @@ import os from 'node:os';
 import {EventEmitter} from 'node:events';
 import {WeComTransport} from '../../lib/core/wecom.mjs';
 import {HEARTBEAT_FILE, KICK_BACKOFF_MS, LAUNCH_WAIT_MS, OFFLINE_WELCOME, SPOOL_TTL_MS, STALE_MS, clearHeartbeat, createWatchdog,
-  heartbeatFresh, spoolCount, spoolMessage, takeLaunched, takeSpool, watchdogState, writeHeartbeat} from '../../lib/core/watchdog.mjs';
+  desktopEnv, heartbeatFresh, spoolCount, spoolMessage, takeLaunched, takeSpool, watchdogState, writeHeartbeat} from '../../lib/core/watchdog.mjs';
 
 const turn = () => new Promise(r => setTimeout(r, 15));
 function fixture(t, {owner = 'owner'} = {}) {
@@ -31,6 +31,11 @@ function fixture(t, {owner = 'owner'} = {}) {
   const run = ms => { for (const end = clock.now + ms; clock.now < end;) { clock.now = Math.min(end, clock.now + 2000); dog.tick(); } };
   return {dir, clock, made, launches, dog, run};
 }
+
+test('拉起 Desktop：去掉 ELECTRON_RUN_AS_NODE，其余环境保留', () => {
+  const env = desktopEnv({ELECTRON_RUN_AS_NODE: '1', PATH: '/usr/bin', HOME: '/h'});
+  assert.deepEqual(env, {PATH: '/usr/bin', HOME: '/h'});
+});
 
 test('看门狗：心跳过期才接管，心跳恢复即让出，状态写盘', t => {
   const f = fixture(t);
