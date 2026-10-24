@@ -81,6 +81,9 @@ test('DSH + 插件 + 假企微：创建/活跃/历史/模型/停止/压缩/状�
     '      workspace-write: {sandbox: workspace-write, approval: ask}',
     '      danger-full-access: {sandbox: danger-full-access, approval: never}',
     '    defaultPreset: read-only',
+    '- id: goal',
+    '  name: "@deepseek-ai/dsh-goal"',
+    '  config: {defaultMaxGoalRounds: 2}',
   ].join('\n') + '\n');
 
   let child = null;
@@ -300,6 +303,18 @@ test('DSH + 插件 + 假企微：创建/活跃/历史/模型/停止/压缩/状�
     const card = await waitCard(c => /切换权限模式/.test(c.main_title?.title || ''), say('权限模式 workspace-write'));
     assert.equal(card.emphasis_content.title, 'workspace-write');
     assert.match(await waitText(/空闲 · alpha/, say('状态')), /权限模式：workspace-write/);
+  });
+
+  await t.test('目标：手机设定后自动续跑，中间各轮不推，到达轮数上限只推一次', async () => {
+    at = say('目标 把报告写完');
+    const card = await waitCard(c => /已设定目标/.test(c.main_title?.title || ''), at);
+    assert.equal(card.emphasis_content.title, '把报告写完');
+    const done = await waitText(/目标到达轮数上限 · alpha/, at, 30000);
+    assert.match(done, /目标：2\/2 轮/);
+    await delay(1000);
+    assert.equal(texts(at).filter(x => /目标|任务完成 · alpha/.test(x)).length, 1);
+    assert.match(await waitText(/空闲 · alpha/, say('状态')), /目标：受阻 · 2\/2 轮/);
+    assert.match(JSON.stringify(await waitCard(c => /已清除目标/.test(c.main_title?.title || ''), say('目标 清除'))), /已清除目标/);
   });
 
   await t.test('工作区：创建会话归入 Desktop 工作区；归档后手机发消息先取消归档', async () => {

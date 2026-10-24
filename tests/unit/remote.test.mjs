@@ -14,9 +14,9 @@ const textOf = m => typeof m === 'string' ? m : m?.text || m?.fallback || '';
 function fakeHost(sessions, ws = {items: [], archived: new Set(), pinned: []}) {
   const calls = [];
   const host = {
-    calls, onPrompt: null, ws, permission: 'read-only',
+    calls, onPrompt: null, ws, permission: 'read-only', goalState: null, armed: false,
     async listSessions() { return sessions; },
-    async projections(sid) { return {title: sessions.find(s => s.sessionId === sid)?.title || null, permissions: {currentValue: host.permission}, modelSelection: {next: {provider: 'mock', model: 'echo', reasoningEffort: 'low'}}, contextPressure: {pressureTokens: 2000, projectedTokens: 2000, contextWindow: 100000}}; },
+    async projections(sid) { return {title: sessions.find(s => s.sessionId === sid)?.title || null, permissions: {currentValue: host.permission}, goal: host.goalState, modelSelection: {next: {provider: 'mock', model: 'echo', reasoningEffort: 'low'}}, contextPressure: {pressureTokens: 2000, projectedTokens: 2000, contextWindow: 100000}}; },
     async createSession(place) {
       calls.push(['create', place]);
       const w = ws.items.find(x => x.id === place.workspaceId);
@@ -29,6 +29,21 @@ function fakeHost(sessions, ws = {items: [], archived: new Set(), pinned: []}) {
     async unarchive(sid) { calls.push(['unarchive', sid]); ws.archived.delete(sid); },
     async permissionCatalog() { return [{value: 'read-only', name: 'read-only'}, {value: 'workspace-write', name: 'workspace-write'}]; },
     async setPermission(sid, preset) { calls.push(['perm', sid, preset]); host.permission = preset; return {kind: 'success', text: `preset ${preset}`}; },
+    async goal(sid, line = '') {
+      calls.push(['goal', sid, line]);
+      const g = host.goalState?.goal;
+      const set = (patch, armed) => { host.goalState = {...host.goalState, goal: {...g, ...patch}}; host.armed = armed; return {kind: 'success', text: 'ok'}; };
+      if (!line) return {kind: 'success', text: g ? `Goal\nStatus: ${g.phase}\nActivation: ${host.armed ? 'armed' : 'disarmed'}` : 'No goal is currently set.'};
+      if (['pause', 'resume', 'clear'].includes(line) && !g) return {kind: 'error', text: `No goal is currently set; /goal ${line} requires one.`};
+      if (line === 'pause') return set({phase: 'paused'}, false);
+      if (line === 'resume') return set({phase: 'active'}, true);
+      if (line === 'clear') { host.goalState = null; host.armed = false; return {kind: 'success', text: 'Goal cleared'}; }
+      if (line.startsWith('edit ')) return set({objective: line.slice(5)}, host.armed);
+      if (g && g.phase !== 'complete') return {kind: 'error', text: `A goal is already ${g.phase}. Use /goal edit <objective> to change it or /goal clear before replacing it.`};
+      host.goalState = {goal: {id: 'g1', revision: 1, objective: line, phase: 'active', maxGoalRounds: 3}, roundsStarted: 0, createdAt: 1, updatedAt: 1};
+      host.armed = true;
+      return {kind: 'success', text: 'Goal created'};
+    },
     async cancel(sid) { calls.push(['cancel', sid]); },
     async modelCatalog() { return {routableProviders: ['mock'], groups: [{id: 'mock', models: [{id: 'echo', name: 'Echo', reasoning: {efforts: [{id: 'low'}, {id: 'high'}], defaultEffort: 'low'}}, {id: 'echo2', name: 'Echo 2'}]}]}; },
     async selectModel(sid, sel) { calls.push(['select', sid, sel]); return sel; },
@@ -480,4 +495,94 @@ test('host 翻译：blocked 空轮次报 turnBlocked；定时提醒带 trigger',
     ['turnBegin', 's1', {rpcId: '', text: '[SCHEDULE REMINDER]', trigger: 'schedule'}],
     ['turnEnd', 's1', {kind: 'completed', error: undefined}],
   ]);
+});
+
+/** 目标续跑的一轮：roundsStarted +1，可选地在轮内改目标状态（模型调 update_goal）。 */
+function goalRound(f, sid, reply, patch = null) {
+  const st = f.host.goalState;
+  st.roundsStarted++;
+  f.remote.sessionStatus(sid, true);
+  f.remote.turnBegin(sid, {text: `<goal_round>\nRound: ${st.roundsStarted}/${st.goal.maxGoalRounds}`, trigger: 'goal'});
+  f.remote.output(sid, reply);
+  if (patch) {
+    st.goal = {...st.goal, ...patch};
+    f.remote.ingest(sid, {type: 'goal/change', data: {kind: 'goal/change', operation: patch.phase || 'edit', ...st}});
+  }
+  f.remote.turnEnd(sid, {kind: 'completed'});
+  f.remote.sessionStatus(sid, false);
+}
+
+test('目标：手机设定后续跑各轮不推，完成时推一次并带最后一轮结果', async t => {
+  const f = fixture(t);
+  await bindFirst(f);
+  const created = JSON.stringify(await f.say('目标 写完周报'));
+  assert.match(created, /已设定目标/);
+  assert.match(created, /写完周报/);
+  assert.deepEqual(f.host.calls.find(c => c[0] === 'goal'), ['goal', 's1', '写完周报']);
+  const before = f.sent.length;
+  goalRound(f, 's1', '第一轮：列了提纲');
+  goalRound(f, 's1', '第二轮：写了一半');
+  await tick(30);
+  assert.equal(f.sent.length, before);
+  assert.match(textOf(await f.say('状态')), /目标：执行中 · 2\/3 轮/);
+  goalRound(f, 's1', '第三轮：写完了', {phase: 'complete'});
+  await tick(30);
+  assert.equal(f.sent.length, before + 1);
+  const done = textOf(f.sent.at(-1));
+  assert.match(done, /目标已完成/);
+  assert.match(done, /第三轮：写完了/);
+  assert.match(done, /目标：3\/3 轮/);
+  assert.match(JSON.stringify(await f.say('目标 再来一个')), /已设定目标/);
+});
+
+test('目标：到达轮数上限推一次；两轮之间在电脑上暂停时推出压着的上一轮', async t => {
+  const f = fixture(t);
+  await bindFirst(f);
+  await f.say('目标 跑满');
+  const before = f.sent.length;
+  goalRound(f, 's1', 'r1');
+  goalRound(f, 's1', 'r2');
+  goalRound(f, 's1', 'r3');
+  await tick(30);
+  assert.equal(f.sent.length, before);
+  const lim = f.host.goalState;
+  lim.goal = {...lim.goal, phase: 'blocked', blockedReason: {code: 'round-limit', message: 'Goal reached its configured limit of 3 rounds.'}};
+  f.remote.ingest('s1', {type: 'goal/change', data: {kind: 'goal/change', operation: 'block', ...lim}});
+  await tick(30);
+  assert.equal(f.sent.length, before + 1);
+  assert.match(textOf(f.sent.at(-1)), /目标到达轮数上限[\s\S]*r3/);
+  assert.doesNotMatch(textOf(f.sent.at(-1)), /受阻原因/);
+  assert.deepEqual(optionsOf(await f.say('目标')), ['清除']);
+
+  await f.say('目标 清除');
+  await f.say('目标 第二个');
+  const mid = f.sent.length;
+  goalRound(f, 's1', '压着的这一轮');
+  await tick(30);
+  assert.equal(f.sent.length, mid);
+  const st = f.host.goalState;
+  st.goal = {...st.goal, phase: 'paused'};
+  f.remote.ingest('s1', {type: 'goal/change', data: {kind: 'goal/change', operation: 'pause', ...st}});
+  await tick(30);
+  assert.equal(f.sent.length, mid + 1);
+  assert.match(textOf(f.sent.at(-1)), /目标已暂停[\s\S]*压着的这一轮/);
+});
+
+test('目标：卡片按状态给操作；暂停 / 继续 / 修改 / 清除走 /goal，冲突与缺目标给中文提示', async t => {
+  const f = fixture(t);
+  await bindFirst(f);
+  assert.match(textOf(await f.say('目标')), /没有目标/);
+  assert.match(textOf(await f.say('目标 暂停')), /还没有目标/);
+  await f.say('目标 写完周报');
+  assert.deepEqual(optionsOf(await f.say('目标')), ['暂停', '清除']);
+  assert.match(textOf(await f.say('目标 另一个')), /已有未完成的目标/);
+  await f.say('目标 暂停');
+  assert.deepEqual(optionsOf(await f.say('目标')), ['继续', '清除']);
+  await f.say('目标 继续');
+  await f.say('目标 修改 写完月报');
+  assert.deepEqual(f.host.calls.filter(c => c[0] === 'goal' && c[2]).map(c => c[2]),
+    ['pause', '写完周报', '另一个', 'pause', 'resume', 'edit 写完月报']);
+  assert.equal(f.host.goalState.goal.objective, '写完月报');
+  assert.match(JSON.stringify(await f.say('目标 清除')), /已清除目标/);
+  assert.equal(f.host.goalState, null);
 });

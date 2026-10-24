@@ -66,7 +66,7 @@ DeepSeek Harness.app ── host 进程
 
 - 每个 DSH 会话一个 `DshTarget`（替换 `TuiTarget` / `RpcTarget`），`kind = 'dsh'`，卡片类型文案「桌面会话」。「活跃会话」= 运行中 / 当前 / 置顶，加最近 24 小时 `updatedAt` 有更新的（最多 10 个），不含 subagent 与已归档；其余进「历史会话」，带关键词检索时活跃会话也参与。不用 `agentAvailable` 判定：DSH 不回收空闲 Agent，它只表示本次 host 启动后被激活过，host 重启即全部归零。
 - 手机投递的 `requestId` 以 `wecom-` 开头。一轮的来源看该轮第一条 `source.kind === 'user'` 的 `user/message`：`rpcId` 带前缀为手机发起，否则为电脑发起（`local`）。
-- 首条是 `schedule` / `goal` 来源的轮次带 `trigger`：会话最近一次用户消息来自手机（记在 `phone-sessions.json`，跨重启）时按手机发起处理。
+- 首条是 `schedule` / `goal` 来源的轮次带 `trigger`：会话最近一次用户消息来自手机（记在 `phone-sessions.json`，跨重启）时按手机发起处理。手机 `目标 描述` / `目标 继续` 也记为手机发起。`goal` 轮次在 `turn/end` 时按已收到的 `goal/change` 判断：目标仍是 active 就压下这一轮不推；轮内变为 complete / blocked / paused，或两轮之间来了非 active 的 `goal/change`（电脑上暂停、清除、到达上限）时推最后一轮；手机命令引起的变化由命令自己回复。
 - 同一轮里的第二条用户消息是插话：对应的手机 loop 标为并入（不单独回传），这一轮改为推回手机。
 - 没有任何消息就 `blocked` 结束的轮次 → `turnBlocked`：最早一条未开始的消息按失败收尾（会话已归档）。
 - 翻译关系（对应 pi remote daemon 的 HTTP 路由）：会话出现 → `/register`；该轮首条用户消息 → `/turn`；`tool/call` → `/activity`；`turn/end` + 累计的 `assistant/message` 文本 → `/result`；`api-session/removed` → `/unregister`。
@@ -81,6 +81,7 @@ DeepSeek Harness.app ── host 进程
 | `cd` 工作区 | 列 `workspace/follow` 的工作区 + 未分组 + 不是工作区的别名目录，选中结果写 `.default-place`（`{workspaceId}` 或 `{cwd}`，没有文件 = 未分组）。不替用户在 Desktop 侧栏添加工作区 |
 | `steer` 插话 | 运行中 `session/prompt mode:'steer'`，空闲时同普通消息 |
 | `perm` 权限模式 | `permissionPresets/catalog` + `/permission <value>` |
+| `goal` 目标 | `commands/execute '/goal [<目标>\|edit <目标>\|pause\|resume\|clear]'`；状态取 `goal` 投影（轮数只在 `goal/change` 时更新，当前轮取续跑提示词的 `Round: N/M`），续跑是否启用只在 `/goal` 输出的 `Activation:` 行。到达上限时续跑驱动在最后一轮后把目标标为 `blocked`（`round-limit`） |
 | `model` / `think` | `modelCatalog` + `selectModel`；思考强度取当前模型的 `reasoning.efforts` |
 | `compact` | `commands/execute '/compact'`，运行中拒绝；带说明时照常压缩，卡片提示说明未生效 |
 | `stop` | `session/cancel` |
