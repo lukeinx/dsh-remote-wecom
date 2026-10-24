@@ -81,7 +81,7 @@ node bin/dsh-remote.mjs setup --bot-id ID --secret S  # 非交互
 | `remoteConfirm` | `ask-then-allow` | 手机发起的任务里，审批转企微卡片；超时后 `ask-then-allow` 允许、`ask` 拒绝；`allow` 不问直接允许 |
 | `remoteConfirmTimeoutMs` | `600000` | 审批与提问的等待上限（1 秒到 1 天） |
 | `openDesktop` | `false` | 「创建会话」后用 `open dsh://open` 把 Desktop 窗口拉到前台（锁屏时跳过）；Desktop 对这个链接只做聚焦窗口，不会切到新会话 |
-| `nameWaitMs` | `5000` | 创建会话后等模型起标题的时间，超时用首条消息截断的临时标题 |
+| `nameWaitMs` | `10000` | 创建会话后等模型起标题的时间，超时用首条消息截断的临时标题 |
 | `inboxDir` | `<数据目录>/inbox` | 附件落地目录 |
 | `dirAliases` | `{"home": "~"}` | 在没有 `aliases.json` 时使用的初始目录别名 |
 

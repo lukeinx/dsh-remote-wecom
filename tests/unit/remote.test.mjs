@@ -252,6 +252,7 @@ test('host 翻译：只认 source.kind=user 的首条消息定来源；标题区
   emit('user/message', {source: {kind: 'user', rpcId: 'other'}, content: [{type: 'text', text: '插话'}]});
   emit('assistant/message', {message: {content: [{type: 'text', text: 'echo'}, {type: 'tool-call'}]}});
   emit('tool/call', {name: 'write'});
+  emit('request/header', {header: {config: {provider: 'cursor', model: 'm1', reasoningEffort: 'medium'}}});
   emit('session/title', {title: '你好', source: {kind: 'fallback'}});
   emit('session/title', {title: 'Greeting'});
   emit('turn/end', {reason: {kind: 'error', error: {message: 'boom'}}});
@@ -261,6 +262,7 @@ test('host 翻译：只认 source.kind=user 的首条消息定来源；标题区
     ['turnMerge', 's1', 'other'],
     ['output', 's1', 'echo'],
     ['activity', 's1', 'write'],
+    ['modelSelected', 's1', {provider: 'cursor', model: 'm1', reasoningEffort: 'medium'}],
     ['title', 's1', '你好', false],
     ['title', 's1', 'Greeting', true],
     ['turnEnd', 's1', {kind: 'error', error: 'boom'}],
