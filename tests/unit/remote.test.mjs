@@ -474,7 +474,7 @@ test('运行中直接发消息：回执说明排到下一轮并提示插话；�
   await bindFirst(f);
   assert.doesNotMatch(textOf(await f.say('在跑的任务')), /插话/);
   const reply = textOf(await f.say('再加一件事'));
-  assert.match(reply, /排到正在运行的这一轮之后/);
+  assert.match(reply, /已排队在此轮任务之后，完成后发送/);
   assert.match(reply, /`插话 内容`/);
   assert.doesNotMatch(textOf(await f.say('帮助')), /插话/);
 });
