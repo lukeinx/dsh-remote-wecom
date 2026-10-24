@@ -144,7 +144,7 @@ DeepSeek Harness.app ── host 进程
 
 ## Desktop 离线看门狗
 
-插件随 Desktop 启停，macOS 上 Cmd+Q 后企微无人接。设置页「Desktop 退出后仍可遥控」（`setWatchdog`）或 `dsh-remote-wecom watchdog install` 装一个 launchd LaunchAgent（`KeepAlive`）跑 `watchdog run`，每 2 秒 tick 一次（`lib/core/watchdog.mjs`）。
+插件随 Desktop 启停，macOS 上 Cmd+Q 后企微无人接。设置页「桌面端退出后仍可拉起」（`setWatchdog`）或 `dsh-remote-wecom watchdog install` 装一个 launchd LaunchAgent（`KeepAlive`）跑 `watchdog run`，每 2 秒 tick 一次（`lib/core/watchdog.mjs`）。
 
 - 登记在 `lib/core/launchd.mjs`。可执行文件优先用 Desktop 自带的 Electron（`ELECTRON_RUN_AS_NODE=1`，与 dsh 命令行相同），不依赖用户的 Node。这样的进程不向 LaunchServices 登记，`open -b` 照常拉起 Desktop；但进程名同为 `DeepSeek Harness`，判断 Desktop 是否在运行要用 `lsappinfo find bundleid=...`，不能用 `pgrep`。
 - 插件启动时 `sync()`：登记指向本数据目录且内容与当前插件路径不一致（pnpm 升级后路径会变）或未加载时重装；指向其他数据目录的登记（如测试）不动。插件配置 `watchdog: false` 隐藏开关，`watchdogDryRun: true`（预览、e2e）把 plist 写进数据目录且不调 launchctl。

@@ -45,7 +45,7 @@ Desktop 运行时会锁住 `desktop` profile，`dsh plugin add` 用不了，需�
 
 同一页可以换机器人、解绑、选新会话位置、设置手机审批超时。扫不了码时可以手动填 BotID / Secret。
 
-打开「Desktop 退出后仍可遥控」（macOS）：Desktop 没开时，手机发来的消息先暂存，并在后台启动 Desktop，启动后自动处理。移除插件前先关掉它。
+打开「桌面端退出后仍可拉起」（macOS）：Desktop 没开时，手机发来的消息先暂存，并在后台启动 Desktop，启动后自动处理。移除插件前先关掉它。
 
 ## 手机上用
 
@@ -83,7 +83,7 @@ alias dsh-remote-wecom='node ~/.dsh/profiles/desktop/node_modules/dsh-remote-wec
 | `bind` | 解除当前主人，生成新绑定码 |
 | `status` | 查看配置、绑定状态和最近日志 |
 | `alias [名称 目录 \| rm 名称]` | 管理目录别名，供「创建会话」「工作区」使用 |
-| `watchdog install\|uninstall\|status` | 「Desktop 退出后仍可遥控」的开关与状态 |
+| `watchdog install\|uninstall\|status` | 「桌面端退出后仍可拉起」的开关与状态 |
 
 数据在 `~/.dsh/integrations/dsh-remote-wecom/`，`config.json` 权限为 600。可选配置和实现细节见 [docs/DESIGN.md](docs/DESIGN.md)。
 
