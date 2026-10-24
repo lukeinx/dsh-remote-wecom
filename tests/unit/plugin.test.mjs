@@ -144,16 +144,16 @@ test('看门狗：Desktop 离线时暂存并拉起，插件上线后接管连接
   await until(() => wecom.connections === 1, 10000, 'watchdog connect');
   await delay(100);
   wecom.say('状态');
-  await until(() => wecom.sent.some(x => /已在后台启动/.test(x)), 10000, 'spool ack');
+  await until(() => spoolCount(s.dir) === 1, 10000, 'spooled');
   assert.equal(launches.length, 1);
+  const before = wecom.sent.length;
   assert.equal(spoolCount(s.dir), 1);
 
   s.apply();
   dog.tick();
   assert.equal(dog.connected, false);
-  await until(() => wecom.sent.some(x => /开始处理离线期间的 1 条消息/.test(x)), 10000, 'replay notice');
-  const at = wecom.sent.findIndex(x => /开始处理离线期间/.test(x));
-  await until(() => wecom.sent.length > at + 1, 10000, 'replayed reply');
+  await until(() => wecom.sent.length > before, 10000, 'replayed reply');
+  assert.ok(!wecom.sent.some(x => /已在后台启动|已重启|开始处理离线/.test(x)), '拉起路径不发中间通知');
   assert.equal(wecom.connections, 2);
   assert.equal(spoolCount(s.dir), 0);
 

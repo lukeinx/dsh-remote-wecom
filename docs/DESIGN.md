@@ -138,8 +138,8 @@ DeepSeek Harness.app ── host 进程
 
 - 交接靠心跳：插件 `apply` 时先写 `alive.json`（先于连企微），此后每 10 秒刷新，插件停止且遥控实例收尾后删除（只删自己 pid 写的）。心跳 30 秒内新鲜时看门狗不连、已连则断开；未配置或未绑定主人也不连。配置重载只重建遥控实例，心跳不断。
 - 企微服务端在新连接建立时向旧连接发 `disconnected_event` 并断开，SDK 不重连被踢的一方。插件上线时挤掉看门狗是预期路径；看门狗被其他连接踢掉时退避 5 分钟，避免与重复部署互踢。反向竞争（看门狗刚好在插件连上后才连，把插件踢掉）：传输层记 `kickedAt`，看门狗下一个 tick 看到心跳会断开并把 `watchdog.json` 写成 `connected:false`，插件心跳 tick 发现「被踢之后看门狗已让出」就重建遥控实例。
-- 看门狗复用 `WeComTransport`（只接主人单聊、msgid 去重、附件先下载到 `inbox/`、发件箱），关掉欢迎语与重启通知（不消费插件写的 `restart.json`），进会话提示换成离线文案。入站消息写 `spool/<at>-<uuid>.json`（`text`、已落盘附件、引用、时间），并 `open -g -j -b com.deepseek.dsh` 后台拉起 Desktop；一次拉起内的后续消息只回「已暂存」，2 分钟后仍无心跳则告警一次。卡片回调依赖插件内存状态，只提示重新操作。
-- 插件 `remote.start()` 给传输层挂 `replaySpool`：首次 `authenticated` 时取出并删除全部暂存（至多一次），排进入站队列依次走 `handleCommand`，超过 30 分钟的只提示。重连不再重放。
+- 看门狗复用 `WeComTransport`（只接主人单聊、msgid 去重、附件先下载到 `inbox/`、发件箱），关掉欢迎语与重启通知（不消费插件写的 `restart.json`），进会话提示换成离线文案。入站消息写 `spool/<at>-<uuid>.json`（`text`、已落盘附件、引用、时间），并 `open -g -j -b com.deepseek.dsh` 后台拉起 Desktop，成功后写 `launched.json`。拉起成功不回手机，只有失败或 2 分钟后仍无心跳才提示。卡片回调依赖插件内存状态，只提示重新操作。
+- 插件 `remote.start()` 给传输层挂 `replaySpool`：首次 `authenticated` 时取出并删除全部暂存（至多一次），排进入站队列依次走 `handleCommand`，超过 30 分钟的只提示。重连不再重放。同时消费 `launched.json`：被拉起或有暂存时静默消费 `restart.json`（不发「已重启」），有暂存就直接回结果，只有卡片触发的拉起（无暂存）才发「已拉起，可以重新操作」。
 - `watchdog install` 在 Desktop 进程存在但没有新鲜心跳时拒绝（旧版插件不写心跳，装上就会踢掉它），`--force` 跳过。
 
 ## 验证

@@ -306,6 +306,20 @@ test('重启通知后立即进会话，只出现重启通知一条', async t => 
   assert.deepEqual(welcomes,[]);
 });
 
+test('被看门狗拉起：有暂存时只回结果，不发重启通知；无暂存时发拉起通知', async t => {
+  const a=fixture(t); a.transport.start(); a.client.emit('authenticated'); await turn(); a.transport.drain();
+  const b=fixture(t,{onMessage: async text => `done ${text}`},a.dir);
+  b.transport.replaySpool(() => [{text: '你好', files: [], at: Date.now()}], {ttlMs: 60_000, launched: () => true});
+  b.transport.start(); b.client.emit('authenticated'); await b.transport.inbound; await turn();
+  assert.deepEqual(b.sent.map(m=>m.body.markdown?.content),['done 你好']);
+  assert.ok(!fs.existsSync(b.transport.restartFile), '重启标记应被静默消费');
+  b.transport.drain();
+  const c=fixture(t,{},a.dir);
+  c.transport.replaySpool(() => [], {ttlMs: 60_000, launched: () => true});
+  c.transport.start(); c.client.emit('authenticated'); await turn();
+  assert.deepEqual(c.sent.map(m=>m.body.markdown?.content),['DSH Desktop 已拉起，企微已连接，可以重新操作了。']);
+});
+
 test('连上后主动给主人发一次欢迎，重连不重复', async t => {
   const f=fixture(t);
   f.transport.start();

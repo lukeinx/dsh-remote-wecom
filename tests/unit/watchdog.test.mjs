@@ -6,7 +6,7 @@ import os from 'node:os';
 import {EventEmitter} from 'node:events';
 import {WeComTransport} from '../../lib/core/wecom.mjs';
 import {HEARTBEAT_FILE, KICK_BACKOFF_MS, LAUNCH_WAIT_MS, OFFLINE_WELCOME, SPOOL_TTL_MS, STALE_MS, clearHeartbeat, createWatchdog,
-  heartbeatFresh, spoolCount, spoolMessage, takeSpool, watchdogState, writeHeartbeat} from '../../lib/core/watchdog.mjs';
+  heartbeatFresh, spoolCount, spoolMessage, takeLaunched, takeSpool, watchdogState, writeHeartbeat} from '../../lib/core/watchdog.mjs';
 
 const turn = () => new Promise(r => setTimeout(r, 15));
 function fixture(t, {owner = 'owner'} = {}) {
@@ -68,16 +68,18 @@ test('看门狗：未绑定主人不连；插件停止时只删自己写的心�
   assert.equal(heartbeatFresh(f.dir), false);
 });
 
-test('看门狗：消息暂存并只拉起一次 Desktop；卡片提示重新操作；超时告警', async t => {
+test('看门狗：消息暂存并静默拉起一次 Desktop；卡片提示重新操作；超时告警', async t => {
   const f = fixture(t);
   f.dog.tick();
   const {onMessage, onCard} = f.made[0].opts;
   const ack = {media: false};
   const first = await onMessage('你好', [{local: '/tmp/a.png', name: 'a.png', kind: 'image', bytes: 3, url: 'x'}], ack, {quote: 'q'});
-  assert.match(first, /已在后台启动/);
+  assert.equal(first, '');
+  assert.equal(takeLaunched(f.dir, f.clock.now), true);
+  assert.equal(takeLaunched(f.dir, f.clock.now), false);
   assert.equal(ack.media, true);
   f.clock.now += 1;
-  assert.match(await onMessage('第二条', [], {media: false}), /正在启动/);
+  assert.equal(await onMessage('第二条', [], {media: false}), '');
   assert.match(await onCard({}), /重新操作/);
   assert.equal(f.launches.length, 1);
   assert.equal(spoolCount(f.dir), 2);
@@ -104,7 +106,7 @@ test('看门狗：拉起失败提示手动打开，下一条消息重试', async
   assert.match(await opts.onMessage('a', [], {}), /启动 DSH Desktop 失败/);
   assert.equal(dog.launching, null);
   fail = false;
-  assert.match(await opts.onMessage('b', [], {}), /已在后台启动/);
+  assert.equal(await opts.onMessage('b', [], {}), '');
   assert.equal(spoolCount(f.dir), 2);
 });
 
@@ -135,7 +137,7 @@ test('看门狗：睡眠唤醒后先等插件补写心跳，不抢连接', t => 
   assert.equal(f.made.length, 1);
 });
 
-test('传输层：首次连上后重放暂存，过期的只提示，重连不重复', async t => {
+test('传输层：首次连上后静默重放暂存，过期的只提示，重连不重复', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-watchdog-replay-'));
   t.after(() => fs.rmSync(dir, {recursive: true, force: true}));
   const client = new EventEmitter();
@@ -155,7 +157,7 @@ test('传输层：首次连上后重放暂存，过期的只提示，重连不�
   await tr.inbound;
   await turn();
   assert.deepEqual(calls, [['新', 1, 'q']]);
-  assert.match(sent[0], /开始处理离线期间的 1 条消息[\s\S]*另有 1 条/);
+  assert.match(sent[0], /^有 1 条离线消息超过/);
   assert.equal(sent[1], 'done 新');
   assert.equal(spoolCount(dir), 0);
   spoolMessage(dir, {text: '再来', files: [], quote: '', at: Date.now()});
