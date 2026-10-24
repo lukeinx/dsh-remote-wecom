@@ -54,7 +54,7 @@ process.on('SIGTERM', () => void cleanup(0));
 
 try {
   web = await startDshWeb({tmp, dataDir: data, port: values.port ? Number(values.port) : undefined,
-    pluginConfig: {qrBaseUrl: qr.url, watchMs: 1000}});
+    pluginConfig: {qrBaseUrl: qr.url, watchMs: 1000, watchdogDryRun: true}});
 } catch (e) {
   console.error(e.message);
   await cleanup(1);

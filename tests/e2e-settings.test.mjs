@@ -23,7 +23,7 @@ test('设置页：前端加载、/api 鉴权、扫码创建机器人、自动认
   const wecom = await startFakeWeCom({botId: 'scan-bot-0001'});
   const qr = await startFakeQr({botId: 'scan-bot-0001'});
   fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify({wsUrl: wecom.url, openDesktop: false}), {mode: 0o600});
-  const web = await startDshWeb({tmp, dataDir: data, pluginConfig: {qrBaseUrl: qr.url, qrPollMs: 150}});
+  const web = await startDshWeb({tmp, dataDir: data, pluginConfig: {qrBaseUrl: qr.url, qrPollMs: 150, watchdogDryRun: true}});
   t.after(async () => {
     await web.stop();
     await wecom.close();
