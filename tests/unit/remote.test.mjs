@@ -469,6 +469,16 @@ test('关注后电脑发起的审批也转手机；取关后交回 Desktop', asy
   f.remote.turnEnd('s1', {kind: 'completed'});
 });
 
+test('运行中直接发消息：回执说明排到下一轮并提示插话；空闲时不提示', async t => {
+  const f = fixture(t);
+  await bindFirst(f);
+  assert.doesNotMatch(textOf(await f.say('在跑的任务')), /插话/);
+  const reply = textOf(await f.say('再加一件事'));
+  assert.match(reply, /排到正在运行的这一轮之后/);
+  assert.match(reply, /`插话 内容`/);
+  assert.doesNotMatch(textOf(await f.say('帮助')), /插话/);
+});
+
 test('插话：运行中走 steer 并入当前轮，这一轮结果推回手机且只推一次；空闲时按普通消息', async t => {
   const f = fixture(t, {sessions: [
     {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},
