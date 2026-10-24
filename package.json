@@ -2,13 +2,24 @@
   "name": "dsh-remote-wecom",
   "version": "0.1.0",
   "description": "DeepSeek Harness plugin: control Desktop sessions from WeCom, with session cards, attachments, approvals and task results.",
+  "author": "lukeinx",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lukeinx/dsh-remote-wecom.git"
+  },
+  "homepage": "https://github.com/lukeinx/dsh-remote-wecom#readme",
+  "bugs": {
+    "url": "https://github.com/lukeinx/dsh-remote-wecom/issues"
+  },
   "type": "module",
   "license": "MIT",
-  "private": true,
   "keywords": [
     "dsh-plugin",
     "deepseek-harness",
-    "wecom"
+    "deepseek-desktop",
+    "wecom",
+    "wechat-work",
+    "remote-control"
   ],
   "main": "lib/index.mjs",
   "exports": {
@@ -26,7 +37,8 @@
     "cordis.patch.yml",
     "README.md",
     "LICENSE",
-    "NOTICE.md"
+    "NOTICE.md",
+    "docs"
   ],
   "dsh": {
     "bundle": {
@@ -49,7 +61,9 @@
     "build": "node client/build.mjs",
     "test": "node --test tests/unit/*.test.mjs",
     "test:e2e": "npm run build && node --test tests/e2e.test.mjs tests/e2e-settings.test.mjs",
-    "check": "npm run build && for f in lib/*.mjs lib/*/*.mjs bin/*.mjs client/*.mjs client/*.js scripts/*.mjs; do node --check \"$f\" || exit 1; done && npm test"
+    "check": "npm run build && for f in lib/*.mjs lib/*/*.mjs bin/*.mjs client/*.mjs client/*.js scripts/*.mjs; do node --check \"$f\" || exit 1; done && npm test",
+    "check:public": "node scripts/check-public.mjs",
+    "prepublishOnly": "npm run check && npm run check:public"
   },
   "dependencies": {
     "@wecom/aibot-node-sdk": "1.0.7",

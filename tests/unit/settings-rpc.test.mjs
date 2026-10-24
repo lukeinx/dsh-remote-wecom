@@ -41,7 +41,7 @@ const noSecret = r => assert.ok(!JSON.stringify(r).includes(SECRET), 'Secret 不
 test('打码：短串保留首尾，长串保留 4 位', () => {
   assert.equal(mask(''), '');
   assert.equal(mask('ab'), 'a•');
-  assert.equal(mask('lukeluo'), 'lu••••uo');
+  assert.equal(mask('zhangsan'), 'zh••••an');
   assert.equal(mask('aibABCDEFGHIJKLMN'), 'aibA••••KLMN');
 });
 
@@ -59,11 +59,11 @@ test('state：未配置时给出原因和默认偏好，不再下发目录别名
 });
 
 test('state：已绑定时打码 BotID / userid，连接状态取自当前 transport，不含 Secret', async t => {
-  const s = setup(t, {botId: 'aib-0123456789abcdef', secret: SECRET, ownerUserId: 'lukeluo'});
+  const s = setup(t, {botId: 'aib-0123456789abcdef', secret: SECRET, ownerUserId: 'zhangsan'});
   s.setRemote({stopped: false, transport: {connected: true, reason: '已连接'}});
   const r = await s.call('state');
   assert.deepEqual(r.value.bot, {botId: 'aib-••••cdef', configured: true});
-  assert.deepEqual(r.value.owner, {bound: true, userId: 'lu••••uo'});
+  assert.deepEqual(r.value.owner, {bound: true, userId: 'zh••••an'});
   assert.deepEqual(r.value.connection, {connected: true, reason: '已连接'});
   assert.deepEqual(r.value.bind, {});
   noSecret(r);

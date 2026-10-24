@@ -31,10 +31,10 @@ const wecom = await startFakeWeCom({botId: BOT_ID});
 const qr = await startFakeQr({botId: BOT_ID});
 const base = {wsUrl: wecom.url, openDesktop: true};
 const config = values.state === 'unconfigured' ? base
-  : {...base, botId: BOT_ID, secret: 'preview-secret', ownerUserId: values.state === 'bound' ? 'lukeluo' : ''};
+  : {...base, botId: BOT_ID, secret: 'preview-secret', ownerUserId: values.state === 'bound' ? 'zhangsan' : ''};
 fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify(config, null, 2), {mode: 0o600});
 if (values.state !== 'unconfigured') {
-  fs.writeFileSync(path.join(data, 'aliases.json'), JSON.stringify({home: '~', vibe: '~/Vibe', 'dsh-remote': ROOT.replace(os.homedir(), '~').replace(/\/$/, '')}, null, 2));
+  fs.writeFileSync(path.join(data, 'aliases.json'), JSON.stringify({home: '~', 'dsh-remote': ROOT.replace(os.homedir(), '~').replace(/\/$/, '')}, null, 2));
 }
 if (values.state === 'unbound') createBindCode(data);
 

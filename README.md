@@ -1,12 +1,16 @@
 # dsh-remote-wecom
 
-在手机企业微信里遥控 DeepSeek Harness Desktop 的会话：发消息、看结果、切会话、切模型、审批与回答提问、取回产物。命令、卡片和推送策略与 [pi-remote-wecom](../pi-remote-package) 一致，宿主换成 DSH。
+[![npm](https://img.shields.io/npm/v/dsh-remote-wecom)](https://www.npmjs.com/package/dsh-remote-wecom)
+
+> Control DeepSeek Harness Desktop sessions from WeCom (企业微信) on your phone: send messages, receive results, switch sessions and models, answer approvals and questions, fetch artifacts. The docs are in Chinese; commands and cards are Chinese-first.
+
+在手机企业微信里遥控 DeepSeek Harness Desktop 的会话：发消息、看结果、切会话、切模型、审批与回答提问、取回产物。命令、卡片和推送策略与 [pi-remote-wecom](https://github.com/lukeinx/pi-remote-wecom) 一致，宿主换成 DSH。
 
 它是一个 DSH bundle 插件，跑在 Desktop 的 host 进程里，自己持有企微智能机器人长连接；Desktop 关闭即离线。设计与宿主接口见 [docs/DESIGN.md](docs/DESIGN.md)。
 
 ## 与 pi-remote-wecom、dsh-im 的关系
 
-- [pi-remote-wecom](../pi-remote-package)：遥控 pi 终端 / 后台会话的 launchd daemon + pi 扩展。本项目搬来它的宿主无关部分（企微传输、命令与中文别名、卡片、推送与引用路由、关注/取关、目录别名、产物、outbox、附件），把 TUI / RPC 会话换成 Desktop 会话，HTTP 协议换成插件内直接调用 DSH 会话控制器。两者互不依赖，可以同时运行，但要用不同的机器人。
+- [pi-remote-wecom](https://github.com/lukeinx/pi-remote-wecom)：遥控 pi 终端 / 后台会话的 launchd daemon + pi 扩展。本项目搬来它的宿主无关部分（企微传输、命令与中文别名、卡片、推送与引用路由、关注/取关、目录别名、产物、outbox、附件），把 TUI / RPC 会话换成 Desktop 会话，HTTP 协议换成插件内直接调用 DSH 会话控制器。两者互不依赖，可以同时运行，但要用不同的机器人。
 - `@xmanrui/dsh-im`：DSH 官方生态里的多 IM 插件，企微交互是斜杠命令 + 单聊绑定单会话。本项目只参考了它的插件写法和审批 / 提问抢答方式，不依赖它；如果它的企微通道和本插件用同一个 BotID，两边会互相顶掉长连接。
 
 ## 要求
@@ -17,25 +21,66 @@
 
 ## 安装
 
-`desktop` profile 只归 Desktop 管，`dsh plugin --profile desktop add` 会报 `managed exclusively by the Electron application`。先退出 Desktop，再手动加进 profile：
+`desktop` profile 只归 Desktop 管，`dsh plugin --profile desktop add` 会报 `managed exclusively by the Electron application`。所以要先退出 Desktop，手动改 profile 的 `package.json`，再用 Desktop 自带的 pnpm 安装。
+
+1. 完全退出 DeepSeek Harness Desktop。
+2. 编辑 `~/.dsh/profiles/desktop/package.json`，保留已有条目，只加两处：
+
+   ```json
+   {
+     "dependencies": {
+       "dsh-remote-wecom": "^0.1.0"
+     },
+     "dsh": {
+       "profile": {
+         "bundles": ["…已有条目…", "dsh-remote-wecom"]
+       }
+     }
+   }
+   ```
+
+3. 安装并启动 Desktop：
+
+   ```sh
+   cd ~/.dsh/profiles/desktop
+   node "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/primary-runtime/dependencies/pnpm/bin/pnpm.mjs" install
+   open -a "DeepSeek Harness"
+   ```
+
+4. 打开「设置 → 企微远程」，能看到二维码即安装成功，接着按下面「配置与绑定」操作。
+
+升级：改 `dependencies` 里的版本号后重复第 3 步。
+
+从源码安装（开发用）：先 `git clone https://github.com/lukeinx/dsh-remote-wecom.git && cd dsh-remote-wecom && npm install && npm run build`（`build` 生成设置页前端 `dist/client.js`，它不进 git，缺了 Desktop 会加载失败），第 2 步的依赖写成 `"dsh-remote-wecom": "link:<仓库绝对路径>"`。改了插件代码（含重新 `npm run build` 的设置页）要重启 Desktop 才生效，配置变化不用。
+
+### 命令行
+
+配置、绑定和看门狗还有命令行入口。下文的 `dsh-remote-wecom` 命令指向 profile 里装好的那份：
 
 ```sh
-cd dsh-remote-wecom && npm install && npm run build   # build 生成设置页前端 dist/client.js（不进 git，缺了 Desktop 会加载失败）
-cd ~/.dsh/profiles/desktop
-# package.json：dependencies 加 "dsh-remote-wecom": "link:<本仓库绝对路径>"，dsh.profile.bundles 末尾加 "dsh-remote-wecom"
-node "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/primary-runtime/dependencies/pnpm/bin/pnpm.mjs" install
+alias dsh-remote-wecom='node ~/.dsh/profiles/desktop/node_modules/dsh-remote-wecom/bin/dsh-remote.mjs'
 ```
 
-然后启动 DeepSeek Harness Desktop。改了插件代码（含重新 `npm run build` 的设置页）要重启 Desktop 才生效，配置变化不用。
+源码安装时直接用仓库里的 `node bin/dsh-remote.mjs`。不要用 `npx dsh-remote-wecom` 安装看门狗，`npx` 的缓存目录随时会被清掉。
+
+### 让 Agent 代装
+
+把本 README 交给 coding agent 时，请它遵守：
+
+- 改 `~/.dsh/profiles/desktop/package.json` 前先退出 Desktop，只追加条目，不删除、不重排已有的 `dependencies` 和 `bundles`。
+- 不用 `dsh plugin --profile desktop add`（会被拒绝），用上面的 pnpm 命令。
+- 不读取、不打印 `config.json` 里的 Secret；扫码和发绑定码需要用户本人在手机上完成，Agent 只负责打开设置页或运行 `dsh-remote-wecom setup`。
+- 验证用 `dsh-remote-wecom status`：出现 `Secret：已配置` 和 `主人：已绑定` 即完成；末尾日志可以看连接情况。
+- 在本仓库里改代码前先读 [AGENTS.md](AGENTS.md)。
 
 ### Desktop 离线看门狗（可选，macOS）
 
 插件跑在 Desktop 进程里，Desktop 退出后企微就没人接了。看门狗是一个 launchd 常驻进程，补上这段：
 
 ```sh
-node bin/dsh-remote.mjs watchdog install    # 写入 ~/Library/LaunchAgents 并启动，登录后自动运行
-node bin/dsh-remote.mjs watchdog status     # 是否运行、插件心跳、暂存消息数、最近日志
-node bin/dsh-remote.mjs watchdog uninstall
+dsh-remote-wecom watchdog install    # 写入 ~/Library/LaunchAgents 并启动，登录后自动运行
+dsh-remote-wecom watchdog status     # 是否运行、插件心跳、暂存消息数、最近日志
+dsh-remote-wecom watchdog uninstall
 ```
 
 - 插件运行时每 10 秒写一次心跳（`alive.json`），看门狗只在心跳超过 30 秒没更新时才连企微，平时不占连接。
@@ -43,7 +88,7 @@ node bin/dsh-remote.mjs watchdog uninstall
 - 卡片点击引用的是插件内存里的状态，离线期间点了只提示重新操作，Desktop 拉起上线后再提醒一次。
 - 拉起 2 分钟后插件仍未上线（比如插件被停用），手机会收到提醒。
 - 安装时如果 Desktop 正在运行却没有心跳（还是旧版本插件），会拒绝安装：先重启 Desktop 加载新插件再装，否则看门狗会把正在运行的插件挤下线。
-- 安装时记下当前 Node 和本仓库路径，换 Node 版本或移动仓库后要重新 `watchdog install`。
+- 安装时记下当前 Node 和插件所在路径，换 Node 版本、升级插件或移动仓库后要重新 `watchdog install`。
 
 ## 配置与绑定
 
@@ -56,8 +101,8 @@ node bin/dsh-remote.mjs watchdog uninstall
 扫不了码时，页面上的「手动填写 BotID」可以直接输入已有机器人的 BotID / Secret。也可以用命令行（结果相同）：
 
 ```sh
-node bin/dsh-remote.mjs setup                         # 交互输入 BotID / Secret
-node bin/dsh-remote.mjs setup --bot-id ID --secret S  # 非交互
+dsh-remote-wecom setup                         # 交互输入 BotID / Secret
+dsh-remote-wecom setup --bot-id ID --secret S  # 非交互
 ```
 
 `setup` 写入 `config.json` 并打印 6 位绑定码，在机器人单聊里发送绑定码，第一个发对的人成为主人。运行中的插件每 5 秒检查一次 `config.json` / `bind.json`，命令行改动后自动重连，不必重启 Desktop。
@@ -140,6 +185,7 @@ npm install
 npm run build     # 打包设置页前端 client/ → dist/client.js
 npm test          # 单元测试
 npm run check     # build + 全部源文件语法检查 + 单元测试
+npm run check:public  # 发布前检查：不含内网链接、本机路径，package.json 指向公开仓库
 npm run test:e2e  # build 后用临时 DSH_HOME 起隔离的 dsh --profile web + 假 LLM + 假企微 + 假扫码接口，约 30 秒
 ```
 

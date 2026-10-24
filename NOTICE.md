@@ -4,7 +4,7 @@ DSH Remote WeCom is distributed under the [MIT License](LICENSE), copyright 2026
 
 ## Included source
 
-- `lib/core/` (session engine, commands, cards, WeCom transport, configuration, directory aliases and artifact filtering) was adapted from pi-remote-wecom `0.3.17`, revision `0013e4a09529604fdd63bcd00a3e4a8936e5cb7d`, also copyright 2026 Luke under MIT. Its own included-source notices (pi-remote, pi-tab-title) apply to the parts carried over; the tab-title module itself is not included here.
+- `lib/core/` (session engine, commands, cards, WeCom transport, configuration, directory aliases and artifact filtering) was adapted from [pi-remote-wecom](https://github.com/lukeinx/pi-remote-wecom) `0.3.17` (npm `pi-remote-wecom@0.3.17`), also copyright 2026 Luke under MIT. Its own included-source notices (pi-remote, pi-tab-title) apply to the parts carried over; the tab-title module itself is not included here.
 
 ## Dependencies
 

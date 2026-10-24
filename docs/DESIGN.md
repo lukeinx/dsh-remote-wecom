@@ -1,6 +1,6 @@
 # dsh-remote-wecom 设计
 
-把 [pi-remote-wecom](../../pi-remote-package)（下称 pi remote）的手机企微遥控体验搬到 DeepSeek Harness Desktop。命令、卡片版式、推送与路由策略保持与 pi remote 一致；只有宿主一侧换成 DSH。
+把 [pi-remote-wecom](https://github.com/lukeinx/pi-remote-wecom)（下称 pi remote）的手机企微遥控体验搬到 DeepSeek Harness Desktop。命令、卡片版式、推送与路由策略保持与 pi remote 一致；只有宿主一侧换成 DSH。
 
 基线：DSH `0.2.1-rc.2`（Desktop 内置 harness），pi remote `0.3.17`。
 
