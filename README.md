@@ -1,10 +1,19 @@
 # dsh-remote-wecom
 
 [![npm](https://img.shields.io/npm/v/dsh-remote-wecom)](https://www.npmjs.com/package/dsh-remote-wecom)
+[![license](https://img.shields.io/npm/l/dsh-remote-wecom)](LICENSE)
 
-> Control DeepSeek Harness Desktop sessions from WeCom (企业微信) on your phone. Docs and commands are in Chinese.
+> Control DeepSeek Harness Desktop sessions from WeCom (企业微信) on your phone: send prompts, get results and files back, approve tool calls, switch sessions and models. Docs and commands are in Chinese.
 
 在手机企业微信里遥控 DeepSeek Harness Desktop：发消息、收结果、切会话和模型、审批与回答提问、取回产物。插件跑在 Desktop 里，自己持有企微智能机器人的长连接。
+
+![手机企业微信里切换会话、审批、插话、收结果和文件、切换模型](docs/images/chat.png)
+
+- 任务跑完自动推结果，生成的文件一并发到手机
+- 审批和提问同时发到手机和 Desktop，哪边先答用哪边
+- 运行中可以插话、停止，也能设长期目标让它自己续跑
+- 引用某条推送回复，消息就发回那个会话，多个任务并行不串
+- Desktop 没开也能发：消息先暂存，后台拉起 Desktop 后自动处理（macOS）
 
 ## 要求
 
@@ -21,7 +30,7 @@ Desktop 运行时会锁住 `desktop` profile，`dsh plugin add` 用不了，需�
 
    ```json
    {
-     "dependencies": { "dsh-remote-wecom": "^0.1.0" },
+     "dependencies": { "dsh-remote-wecom": "^0.1.2" },
      "dsh": { "profile": { "bundles": ["…", "dsh-remote-wecom"] } }
    }
    ```
@@ -36,14 +45,25 @@ Desktop 运行时会锁住 `desktop` profile，`dsh plugin add` 用不了，需�
 
 升级时改版本号，再重复第 3 步。
 
+也可以把下面这段发给 Agent（Claude Code、Cursor、pi 等）代装：
+
+```text
+按 https://github.com/lukeinx/dsh-remote-wecom 的 README 给我的 DeepSeek Harness Desktop 安装 dsh-remote-wecom，
+遵守「让 Agent 代装」一节的规则；装好后提醒我到「设置 → 企微远程」扫码绑定。
+```
+
 ## 绑定
 
 打开 Desktop「设置 → 企微远程」：
+
+<img src="docs/images/settings.png" alt="Desktop 设置页「企微远程」" width="560">
 
 1. 用企业微信扫码，自动创建机器人并连接。
 2. 10 分钟内给机器人发一条单聊消息，发送人即成为主人；过了窗口就发页面上的 6 位绑定码。之后只接主人的单聊。
 
 同一页可以换机器人、解绑、选新会话位置、设置手机审批超时。扫不了码时可以手动填 BotID / Secret。
+
+打开「桌面端退出后仍可拉起」（macOS）：Desktop 没开时，手机发来的消息先暂存，并在后台启动 Desktop，启动后自动处理。移除插件前先关掉它。
 
 ## 手机上用
 
@@ -67,20 +87,13 @@ Desktop 运行时会锁住 `desktop` profile，`dsh plugin add` 用不了，需�
 
 中文命令和参数之间要有空格：`模型 high` 是命令，`模型high` 会当普通消息发出。
 
-## 离线看门狗（可选，macOS）
+## 命令行
 
-插件随 Desktop 启停，Desktop 退出后就没人接企微了。看门狗是一个独立的 launchd 进程：发现插件不在线时暂存消息、在后台拉起 Desktop，插件上线后自动处理。
+设置页之外的备用入口：
 
 ```sh
 alias dsh-remote-wecom='node ~/.dsh/profiles/desktop/node_modules/dsh-remote-wecom/bin/dsh-remote.mjs'
-dsh-remote-wecom watchdog install     # 升级插件或换 Node 后要重新执行
-dsh-remote-wecom watchdog status
-dsh-remote-wecom watchdog uninstall
 ```
-
-## 命令行
-
-设置页之外的备用入口（`dsh-remote-wecom` 即上面的 alias）：
 
 | 命令 | 作用 |
 |---|---|
@@ -88,7 +101,7 @@ dsh-remote-wecom watchdog uninstall
 | `bind` | 解除当前主人，生成新绑定码 |
 | `status` | 查看配置、绑定状态和最近日志 |
 | `alias [名称 目录 \| rm 名称]` | 管理目录别名，供「创建会话」「工作区」使用 |
-| `watchdog install\|uninstall\|status` | 离线看门狗 |
+| `watchdog install\|uninstall\|status` | 「桌面端退出后仍可拉起」的开关与状态 |
 
 数据在 `~/.dsh/integrations/dsh-remote-wecom/`，`config.json` 权限为 600。可选配置和实现细节见 [docs/DESIGN.md](docs/DESIGN.md)。
 

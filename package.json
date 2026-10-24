@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote-wecom",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "DeepSeek Harness plugin: control Desktop sessions from WeCom, with session cards, attachments, approvals and task results.",
   "author": "lukeinx",
   "repository": {
@@ -19,7 +19,13 @@
     "deepseek-desktop",
     "wecom",
     "wechat-work",
-    "remote-control"
+    "remote-control",
+    "deepseek",
+    "dsh",
+    "ai-agent",
+    "chatops",
+    "mobile",
+    "企业微信"
   ],
   "main": "lib/index.mjs",
   "exports": {
@@ -38,7 +44,7 @@
     "README.md",
     "LICENSE",
     "NOTICE.md",
-    "docs"
+    "docs/DESIGN.md"
   ],
   "dsh": {
     "bundle": {

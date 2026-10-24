@@ -7,8 +7,8 @@ import {parseArgs} from 'node:util';
 import {BIND_FILE, BIND_TTL_MS, CONFIG_FILE, VERSION, applyCredentials, defaultDataDir, hasCredentials, loadConfig, readUserConfig, resetOwner} from '../lib/core/config.mjs';
 import {checkName, expandDir, loadAliases, missingDirs, saveAliases, tildeDir} from '../lib/core/aliases.mjs';
 import {execFileSync} from 'node:child_process';
-import {fileURLToPath} from 'node:url';
-import {createWatchdog, heartbeatAge, heartbeatFresh, spoolCount, watchdogState} from '../lib/core/watchdog.mjs';
+import {DESKTOP_BUNDLE_ID, createWatchdog, heartbeatAge, heartbeatFresh, spoolCount, watchdogState} from '../lib/core/watchdog.mjs';
+import {createLaunchd, launchdSupported} from '../lib/core/launchd.mjs';
 
 const USAGE = `dsh-remote-wecom ${VERSION}
 
@@ -103,13 +103,9 @@ function alias(dir, args) {
   console.log(rows.length ? rows.map(([n, d]) => `${n} → ${d}${missing.has(n) ? '（目录不存在）' : ''}`).join('\n') : '还没有目录别名。');
 }
 
-const WATCHDOG_LABEL = 'com.dsh-remote-wecom.watchdog';
 const WATCHDOG_TICK_MS = 2000;
 const WATCHDOG_LOG = 'watchdog.log';
 const WATCHDOG_LOG_MAX = 1024 * 1024;
-const plistFile = () => path.join(process.env.HOME, 'Library', 'LaunchAgents', `${WATCHDOG_LABEL}.plist`);
-const domain = () => `gui/${process.getuid()}`;
-const xml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function watchdogRun(dir) {
   const file = path.join(dir, WATCHDOG_LOG);
@@ -129,55 +125,29 @@ function watchdogRun(dir) {
   process.on('SIGINT', quit);
 }
 
+// 看门狗进程用的也是 Desktop 的可执行文件，按进程名判断会误报；只认登记到 LaunchServices 的 App。
 function desktopRunning() {
-  try { execFileSync('pgrep', ['-x', 'DeepSeek Harness'], {stdio: 'ignore'}); return true; } catch { return false; }
+  try { return execFileSync('lsappinfo', ['find', `bundleid=${DESKTOP_BUNDLE_ID}`], {encoding: 'utf8'}).trim() !== ''; } catch { return false; }
 }
 
 function watchdogInstall(dir, force) {
   // 旧版插件不写心跳：此时装上看门狗会把正在运行的插件踢下线。
   if (!force && desktopRunning() && !heartbeatFresh(dir))
     throw new Error('DSH Desktop 正在运行，但插件没有心跳（可能是旧版本插件或插件未启用）。请先重启 Desktop 加载新版插件再安装；确认无误可加 --force。');
-  const args = [process.execPath, fileURLToPath(import.meta.url), 'watchdog', 'run', '--dir', dir];
-  const env = {PATH: '/usr/bin:/bin:/usr/sbin:/sbin', ...(process.env.DSH_HOME ? {DSH_HOME: process.env.DSH_HOME} : {})};
-  const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>${WATCHDOG_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>
-${args.map(a => `    <string>${xml(a)}</string>`).join('\n')}
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-${Object.entries(env).map(([k, v]) => `    <key>${k}</key><string>${xml(v)}</string>`).join('\n')}
-  </dict>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>ProcessType</key><string>Background</string>
-  <key>StandardErrorPath</key><string>${xml(path.join(dir, 'watchdog.err'))}</string>
-</dict>
-</plist>
-`;
-  fs.mkdirSync(path.dirname(plistFile()), {recursive: true});
-  fs.mkdirSync(dir, {recursive: true, mode: 0o700});
-  try { execFileSync('launchctl', ['bootout', `${domain()}/${WATCHDOG_LABEL}`], {stdio: 'ignore'}); } catch {}
-  fs.writeFileSync(plistFile(), plist);
-  execFileSync('launchctl', ['bootstrap', domain(), plistFile()]);
-  console.log(`看门狗已安装并启动：${plistFile()}`);
-  console.log(`Node：${process.execPath}（升级或切换 Node 后请重新执行 watchdog install）`);
+  const launchd = createLaunchd({dir});
+  launchd.install();
+  console.log(`看门狗已安装并启动：${launchd.file}`);
+  console.log('也可以在 Desktop「设置 → 企微远程」里开关。');
 }
 
-function watchdogUninstall() {
-  try { execFileSync('launchctl', ['bootout', `${domain()}/${WATCHDOG_LABEL}`], {stdio: 'ignore'}); } catch {}
-  fs.rmSync(plistFile(), {force: true});
+function watchdogUninstall(dir) {
+  createLaunchd({dir}).uninstall();
   console.log('看门狗已卸载。');
 }
 
 function watchdogStatus(dir) {
-  let loaded = false;
-  try { execFileSync('launchctl', ['print', `${domain()}/${WATCHDOG_LABEL}`], {stdio: 'ignore'}); loaded = true; } catch {}
-  console.log(`看门狗：${loaded ? '已安装并运行' : fs.existsSync(plistFile()) ? '已安装但未加载' : '未安装'}`);
+  const launchd = createLaunchd({dir});
+  console.log(`看门狗：${launchd.loaded() ? '已安装并运行' : fs.existsSync(launchd.file) ? '已安装但未加载' : '未安装'}`);
   const age = heartbeatAge(dir);
   console.log(`插件心跳：${Number.isFinite(age) ? `${Math.round(age / 1000)} 秒前` : '无'}`);
   const wd = watchdogState(dir);
@@ -190,10 +160,10 @@ function watchdogStatus(dir) {
 }
 
 function watchdog(dir, [sub = 'status'], force) {
-  if (process.platform !== 'darwin' && sub !== 'run') throw new Error('看门狗仅支持 macOS（launchd）');
+  if (!launchdSupported() && sub !== 'run') throw new Error('看门狗仅支持 macOS（launchd）');
   if (sub === 'run') watchdogRun(dir);
   else if (sub === 'install') watchdogInstall(dir, force);
-  else if (sub === 'uninstall') watchdogUninstall();
+  else if (sub === 'uninstall') watchdogUninstall(dir);
   else if (sub === 'status') watchdogStatus(dir);
   else throw new Error('用法：dsh-remote-wecom watchdog install|uninstall|status');
 }

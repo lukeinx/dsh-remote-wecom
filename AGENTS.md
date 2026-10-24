@@ -10,6 +10,7 @@ DeepSeek Harness (DSH) bundle plugin that lets the owner drive Desktop sessions 
 | `lib/core/` | Host-independent layer adapted from pi-remote-wecom: commands, cards, run/target state, push and quote routing, WeCom transport, config, aliases, artifacts, QR auth, watchdog |
 | `lib/host/dsh-host.mjs` | DSH adapter: session controller calls, `session/event` translation, approval and question waterfalls |
 | `lib/host/settings-rpc.mjs` | Backend of the Desktop "企微远程" settings page |
+| `lib/core/launchd.mjs` | launchd registration of the offline watchdog, shared by the settings switch and the CLI |
 | `client/` | Settings page front end, bundled to `dist/client.js` by `npm run build` |
 | `bin/dsh-remote.mjs` | CLI: `setup`, `bind`, `status`, `alias`, `watchdog` |
 | `scripts/preview.mjs` | Settings page preview on an isolated DSH web instance with fake WeCom and QR endpoints |

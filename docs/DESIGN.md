@@ -144,7 +144,10 @@ DeepSeek Harness.app ── host 进程
 
 ## Desktop 离线看门狗
 
-插件随 Desktop 启停，macOS 上 Cmd+Q 后企微无人接。`dsh-remote-wecom watchdog install` 装一个 launchd LaunchAgent（`KeepAlive`）跑 `watchdog run`，每 2 秒 tick 一次（`lib/core/watchdog.mjs`）。
+插件随 Desktop 启停，macOS 上 Cmd+Q 后企微无人接。设置页「桌面端退出后仍可拉起」（`setWatchdog`）或 `dsh-remote-wecom watchdog install` 装一个 launchd LaunchAgent（`KeepAlive`）跑 `watchdog run`，每 2 秒 tick 一次（`lib/core/watchdog.mjs`）。
+
+- 登记在 `lib/core/launchd.mjs`。可执行文件优先用 Desktop 自带的 Electron（`ELECTRON_RUN_AS_NODE=1`，与 dsh 命令行相同），不依赖用户的 Node。这样的进程不向 LaunchServices 登记，`open -b` 照常拉起 Desktop；但进程名同为 `DeepSeek Harness`，判断 Desktop 是否在运行要用 `lsappinfo find bundleid=...`，不能用 `pgrep`。
+- 插件启动时 `sync()`：登记指向本数据目录且内容与当前插件路径不一致（pnpm 升级后路径会变）或未加载时重装；指向其他数据目录的登记（如测试）不动。插件配置 `watchdog: false` 隐藏开关，`watchdogDryRun: true`（预览、e2e）把 plist 写进数据目录且不调 launchctl。
 
 - 交接靠心跳：插件 `apply` 时先写 `alive.json`（先于连企微），此后每 10 秒刷新，插件停止且遥控实例收尾后删除（只删自己 pid 写的）。心跳 30 秒内新鲜时看门狗不连、已连则断开；未配置或未绑定主人也不连。配置重载只重建遥控实例，心跳不断。
 - 企微服务端在新连接建立时向旧连接发 `disconnected_event` 并断开，SDK 不重连被踢的一方。插件上线时挤掉看门狗是预期路径；看门狗被其他连接踢掉时退避 5 分钟，避免与重复部署互踢。反向竞争（看门狗刚好在插件连上后才连，把插件踢掉）：传输层记 `kickedAt`，看门狗下一个 tick 看到心跳会断开并把 `watchdog.json` 写成 `connected:false`，插件心跳 tick 发现「被踢之后看门狗已让出」就重建遥控实例。

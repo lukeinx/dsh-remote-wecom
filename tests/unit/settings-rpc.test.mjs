@@ -200,3 +200,27 @@ test('路由：信封协议、仅本机、失败带 error.details', async () => 
   res = await handleRequest(request('{'), handler);
   assert.equal(res.status, 400);
 });
+
+test('看门狗开关：不支持时不下发、调用报错；支持时开关即生效，失败给出友好提示', async t => {
+  const s = setup(t);
+  assert.equal((await s.call('state', {})).value.watchdog, null);
+  assert.equal((await s.call('setWatchdog', {enabled: true})).error.message, '当前系统不支持');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-settings-'));
+  t.after(() => fs.rmSync(dir, {recursive: true, force: true}));
+  let on = false;
+  let broken = false;
+  const watchdog = {
+    enabled: () => on,
+    install() { if (broken) throw new Error('Bootstrap failed: 5: Input/output error'); on = true; },
+    uninstall() { on = false; },
+  };
+  const call = createSettingsHandler({dir, getRemote: () => null, getBootError: () => '', reload: async () => {}, qr: s.qr, watchdog});
+  assert.deepEqual((await call('state', {})).value.watchdog, {enabled: false});
+  assert.deepEqual((await call('setWatchdog', {enabled: true})).value.watchdog, {enabled: true});
+  assert.deepEqual((await call('setWatchdog', {enabled: false})).value.watchdog, {enabled: false});
+  assert.equal((await call('setWatchdog', {enabled: 'yes'})).error.message, '参数无效');
+  broken = true;
+  const r = await call('setWatchdog', {enabled: true});
+  assert.equal(r.error.message, '开启失败，请稍后重试');
+});

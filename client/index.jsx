@@ -1,4 +1,4 @@
-// 「设置 → 企微远程」：扫码创建机器人、绑定账号、新会话位置、偏好与其他目录。保存即生效，状态约 2 秒轮询一次。
+// 「设置 → 企微远程」：扫码创建机器人、绑定账号、新会话位置、偏好与离线看门狗。保存即生效，状态约 2 秒轮询一次。
 import * as React from 'react';
 import {installStyles} from './styles.js';
 import {en, zh} from './locale.js';
@@ -256,6 +256,12 @@ function Configured({s, now, act, busy, errors, setError, t}) {
           <Switch checked={s.prefs.openDesktop} label={t('row.openDesktop')} disabled={busy.open}
             onChange={v => act('open', 'setPrefs', {openDesktop: v})} />
         </Row>
+        {s.watchdog ? (
+          <Row label={t('row.watchdog')} error={errors.watchdog}>
+            <Switch checked={s.watchdog.enabled} label={t('row.watchdog')} disabled={busy.watchdog}
+              onChange={v => act('watchdog', 'setWatchdog', {enabled: v})} />
+          </Row>
+        ) : null}
       </div>
       <div className="drw-foot">
         <Button variant="outline" disabled={busy.restart} onClick={() => act('restart', 'restart')}>
