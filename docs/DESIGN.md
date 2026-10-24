@@ -80,7 +80,7 @@ DeepSeek Harness.app ── host 进程
 | `n` / `nb` 创建（后台）会话 | 位置 = 首个词（工作区名 / `未分组` / 别名 / 路径）或默认位置；工作区 → `{workspaceId}`，非工作区目录 → `{cwd}`，未分组 → `{}`。再投递首条消息，等非 fallback 标题（`nameWaitMs`）；`n` 在 `openDesktop` 打开时额外 `open dsh://open`（默认关，屏幕锁定时跳过） |
 | `cd` 工作区 | 列 `workspace/follow` 的工作区 + 未分组 + 不是工作区的别名目录，选中结果写 `.default-place`（`{workspaceId}` 或 `{cwd}`，没有文件 = 未分组）。不替用户在 Desktop 侧栏添加工作区 |
 | `steer` 插话 | 运行中 `session/prompt mode:'steer'`，空闲时同普通消息 |
-| `perm` 权限 | `permissionPresets/catalog` + `/permission <value>` |
+| `perm` 权限模式 | `permissionPresets/catalog` + `/permission <value>` |
 | `model` / `think` | `modelCatalog` + `selectModel`；思考强度取当前模型的 `reasoning.efforts` |
 | `compact` | `commands/execute '/compact'`，运行中拒绝；带说明时照常压缩，卡片提示说明未生效 |
 | `stop` | `session/cancel` |

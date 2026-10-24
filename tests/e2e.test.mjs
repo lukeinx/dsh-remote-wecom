@@ -296,10 +296,10 @@ test('DSH + 插件 + 假企微：创建/活跃/历史/模型/停止/压缩/状�
     assert.equal(texts(at).filter(x => /任务完成 · alpha/.test(x)).length, 1);
   });
 
-  await t.test('权限：手机切到 workspace-write，状态里反映出来', async () => {
-    const card = await waitCard(c => /切换权限/.test(c.main_title?.title || ''), say('权限 workspace-write'));
+  await t.test('权限模式：手机切到 workspace-write，状态里反映出来', async () => {
+    const card = await waitCard(c => /切换权限模式/.test(c.main_title?.title || ''), say('权限模式 workspace-write'));
     assert.equal(card.emphasis_content.title, 'workspace-write');
-    assert.match(await waitText(/空闲 · alpha/, say('状态')), /权限：workspace-write/);
+    assert.match(await waitText(/空闲 · alpha/, say('状态')), /权限模式：workspace-write/);
   });
 
   await t.test('工作区：创建会话归入 Desktop 工作区；归档后手机发消息先取消归档', async () => {

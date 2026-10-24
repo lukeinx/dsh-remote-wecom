@@ -449,15 +449,16 @@ test('插话：运行中走 steer 并入当前轮，这一轮结果推回手机�
   assert.equal(f.host.calls.filter(c => c[0] === 'prompt').at(-1)[4], 'queue');
 });
 
-test('权限：卡片列出预设并标当前；按名称切换走 /permission，状态里显示', async t => {
+test('权限模式：卡片列出预设并标当前；按名称切换走 /permission，状态里显示', async t => {
   const f = fixture(t);
   await bindFirst(f);
   const card = await f.say('权限');
   assert.deepEqual(optionsOf(card), ['read-only · ← 当前', 'workspace-write']);
-  assert.match(JSON.stringify(await f.say('权限 workspace')), /workspace-write/);
+  assert.match(JSON.stringify(await f.say('权限模式 workspace')), /workspace-write/);
   assert.deepEqual(f.host.calls.find(c => c[0] === 'perm'), ['perm', 's1', 'workspace-write']);
-  assert.match(textOf(await f.say('状态')), /权限：workspace-write/);
-  assert.match(textOf(await f.say('权限 root')), /没有这个预设/);
+  assert.match(textOf(await f.say('状态')), /权限模式：workspace-write/);
+  assert.match(textOf(await f.say('切换权限 root')), /没有这个预设/);
+  assert.doesNotMatch(JSON.stringify(await f.say('权限 不够怎么办')), /没有这个预设|切换权限模式/);
 });
 
 test('host 翻译：blocked 空轮次报 turnBlocked；定时提醒带 trigger', () => {
