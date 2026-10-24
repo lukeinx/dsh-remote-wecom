@@ -1,0 +1,78 @@
+{
+  "name": "dsh-remote-wecom",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness plugin: control Desktop sessions from WeCom, with session cards, attachments, approvals and task results.",
+  "author": "lukeinx",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lukeinx/dsh-remote-wecom.git"
+  },
+  "homepage": "https://github.com/lukeinx/dsh-remote-wecom#readme",
+  "bugs": {
+    "url": "https://github.com/lukeinx/dsh-remote-wecom/issues"
+  },
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek-desktop",
+    "wecom",
+    "wechat-work",
+    "remote-control"
+  ],
+  "main": "lib/index.mjs",
+  "exports": {
+    ".": "./lib/index.mjs",
+    "./client": "./dist/client.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-remote-wecom": "./bin/dsh-remote.mjs"
+  },
+  "files": [
+    "lib",
+    "bin",
+    "dist",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "NOTICE.md",
+    "docs"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "engines": {
+    "dsh": ">=0.2.0-rc.2",
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "node client/build.mjs",
+    "test": "node --test tests/unit/*.test.mjs",
+    "test:e2e": "npm run build && node --test tests/e2e.test.mjs tests/e2e-settings.test.mjs",
+    "check": "npm run build && for f in lib/*.mjs lib/*/*.mjs bin/*.mjs client/*.mjs client/*.js scripts/*.mjs; do node --check \"$f\" || exit 1; done && npm test",
+    "check:public": "node scripts/check-public.mjs",
+    "prepublishOnly": "npm run check && npm run check:public"
+  },
+  "dependencies": {
+    "@wecom/aibot-node-sdk": "1.0.7",
+    "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh": "0.2.1-rc.2",
+    "esbuild": "0.25.9",
+    "react": "18.3.1",
+    "ws": "^8.22.0"
+  }
+}
