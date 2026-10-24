@@ -358,6 +358,25 @@ test('活跃列表：置顶在前，其余按工作区顺序分组、未分组�
   assert.deepEqual(optionsOf(card).map(x => x.split(' · ').slice(0, 2).join(' · ')), ['📌 Pinned · W1', 'InW1 · W1', 'InW2 · W2', 'Loose · 未分组']);
 });
 
+test('活跃列表按最近活动：Agent 已加载但久未动的不算，重启后最近用过的仍在，非置顶最多 10 个', async t => {
+  const now = Date.now();
+  const day = 24 * 3600_000;
+  const recent = Array.from({length: 12}, (_, i) => ({sessionId: `r${i}`, cwd: os.homedir(), agentAvailable: false, title: `Recent${i}`, updatedAt: now - (i + 1) * 60_000}));
+  const f = fixture(t, {
+    sessions: [
+      {sessionId: 'stale', cwd: os.homedir(), agentAvailable: true, title: 'Stale', updatedAt: now - 2 * day},
+      {sessionId: 'pin', cwd: os.homedir(), agentAvailable: false, title: 'OldPin', updatedAt: now - 30 * day},
+      ...recent,
+    ],
+    wsState: {items: [], archived: new Set(), pinned: ['pin']},
+  });
+  const names = optionsOf(await f.say('活跃会话')).map(x => x.split(' · ')[0]);
+  assert.ok(!names.includes('Stale'), names.join(' | '));
+  assert.equal(names[0], '📌 OldPin');
+  assert.deepEqual(names.slice(1), recent.slice(0, 10).map(s => s.title));
+  assert.match(JSON.stringify(await f.say('历史会话 Recent1')), /Recent1/);
+});
+
 test('定时提醒：最近一次用户消息来自手机的会话推回手机，来自电脑的不推；归属写进文件', async t => {
   const f = fixture(t, {sessions: [
     {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},

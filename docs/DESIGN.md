@@ -20,7 +20,7 @@ DeepSeek Harness.app ── host 进程
 | pi remote | dsh-remote-wecom |
 |---|---|
 | launchd daemon + pi TUI 扩展，HTTP 长轮询 | 插件在 host 内直接调用会话控制器，无进程间协议 |
-| 终端会话（TUI）/ 后台会话（`pi --mode rpc`） | 都是 Desktop 里的会话；「创建会话」新建后 `open dsh://open` 把 Desktop 拉到前台，「创建后台会话」只新建 |
+| 终端会话（TUI）/ 后台会话（`pi --mode rpc`） | 都是 Desktop 里的会话；「创建会话」新建后按 `openDesktop`（默认关）`open dsh://open` 把 Desktop 窗口拉到前台，「创建后台会话」只新建。Desktop 的 `open-url` 只认 `dsh://open` 并聚焦主窗口，不带会话定位；定位会话只有渲染进程的 `ctx.uiWorkspace.openSession` |
 | 新会话按目录开（`cd` 选目录） | 新会话按 Desktop 工作区开（`工作区` 选工作区或未分组）；会话只有带 `workspaceId` 创建才归入工作区 |
 | 会话没有归档、置顶 | 列表排除 Desktop 里已归档的会话、置顶在前；手机投递前先取消归档 |
 | 轮次只有人发起 | 定时提醒（`schedule`）与目标续跑（`goal`）会自己唤起轮次，按会话最近一次用户消息的来源决定是否推手机 |
@@ -64,7 +64,7 @@ DeepSeek Harness.app ── host 进程
 
 ### 会话与轮次
 
-- 每个 DSH 会话一个 `DshTarget`（替换 `TuiTarget` / `RpcTarget`），`kind = 'dsh'`，卡片类型文案「桌面会话」。「活跃会话」= `agentAvailable || running` 的非 subagent 会话；其余进「历史会话」。
+- 每个 DSH 会话一个 `DshTarget`（替换 `TuiTarget` / `RpcTarget`），`kind = 'dsh'`，卡片类型文案「桌面会话」。「活跃会话」= 运行中 / 当前 / 置顶，加最近 24 小时 `updatedAt` 有更新的（最多 10 个），不含 subagent 与已归档；其余进「历史会话」，带关键词检索时活跃会话也参与。不用 `agentAvailable` 判定：DSH 不回收空闲 Agent，它只表示本次 host 启动后被激活过，host 重启即全部归零。
 - 手机投递的 `requestId` 以 `wecom-` 开头。一轮的来源看该轮第一条 `source.kind === 'user'` 的 `user/message`：`rpcId` 带前缀为手机发起，否则为电脑发起（`local`）。
 - 首条是 `schedule` / `goal` 来源的轮次带 `trigger`：会话最近一次用户消息来自手机（记在 `phone-sessions.json`，跨重启）时按手机发起处理。
 - 同一轮里的第二条用户消息是插话：对应的手机 loop 标为并入（不单独回传），这一轮改为推回手机。
@@ -77,7 +77,7 @@ DeepSeek Harness.app ── host 进程
 | 命令 | DSH 实现 |
 |---|---|
 | `ls` 活跃会话 / `h` 历史会话 | `session/list` + projections + `workspace/follow` 首帧；默认隐藏 subagent（`origin === 'subagent'` 或有 `parentSessionId`）和已归档，`全部` 才显示；活跃列表置顶在前，其余按工作区顺序分组、未分组最后 |
-| `n` / `nb` 创建（后台）会话 | 位置 = 首个词（工作区名 / `未分组` / 别名 / 路径）或默认位置；工作区 → `{workspaceId}`，非工作区目录 → `{cwd}`，未分组 → `{}`。再投递首条消息，等非 fallback 标题（`nameWaitMs`）；`n` 额外 `open dsh://open`（`openDesktop` 可关，屏幕锁定时跳过） |
+| `n` / `nb` 创建（后台）会话 | 位置 = 首个词（工作区名 / `未分组` / 别名 / 路径）或默认位置；工作区 → `{workspaceId}`，非工作区目录 → `{cwd}`，未分组 → `{}`。再投递首条消息，等非 fallback 标题（`nameWaitMs`）；`n` 在 `openDesktop` 打开时额外 `open dsh://open`（默认关，屏幕锁定时跳过） |
 | `cd` 工作区 | 列 `workspace/follow` 的工作区 + 未分组 + 不是工作区的别名目录，选中结果写 `.default-place`（`{workspaceId}` 或 `{cwd}`，没有文件 = 未分组）。不替用户在 Desktop 侧栏添加工作区 |
 | `steer` 插话 | 运行中 `session/prompt mode:'steer'`，空闲时同普通消息 |
 | `perm` 权限 | `permissionPresets/catalog` + `/permission <value>` |

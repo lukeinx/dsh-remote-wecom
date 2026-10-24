@@ -25,11 +25,11 @@ test('remoteConfirm 配置：默认 ask-then-allow / 10 分钟；非法策略与
   write(dir, {remoteConfirmTimeoutMs: 10}); assert.throws(() => loadConfig(dir), /remoteConfirmTimeoutMs/);
 });
 
-test('默认值：收件目录在数据目录下，创建会话拉起 Desktop；openDesktop 非布尔报错', t => {
+test('默认值：收件目录在数据目录下，创建会话默认不拉起 Desktop；openDesktop 非布尔报错', t => {
   const dir = tmp(t);
   const cfg = loadConfig(dir);
   assert.equal(cfg.inboxDir, path.join(dir, 'inbox'));
-  assert.equal(cfg.openDesktop, true);
+  assert.equal(cfg.openDesktop, false);
   write(dir, {openDesktop: 'no'}); assert.throws(() => loadConfig(dir), /openDesktop/);
 });
 
