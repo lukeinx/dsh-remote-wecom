@@ -262,6 +262,16 @@ test('发件箱重启恢复；附件重试不重复已确认的正文', async t 
   fail=false;queued.retryAt=0;fs.writeFileSync(queuedFile,JSON.stringify(queued));
   await restored.flush();assert.equal(f.sent.length,1);assert.equal(restored.queueFiles().length,0);restored.stop();
 });
+test('发件箱：回执超时按已送达不重发，明确报错才保留重试', async t => {
+  const f = fixture(t); f.transport.connected = true;
+  let error = Error('Reply ack timeout (5000ms) for reqId: x'); let calls = 0;
+  f.client.sendMessage = async () => { calls++; if (error) throw error; };
+  await f.transport.send('提示'); await turn();
+  assert.equal(calls, 1); assert.equal(f.transport.queueFiles().length, 0);
+  error = Error('offline');
+  await f.transport.send('提示'); await turn();
+  assert.equal(calls, 2); assert.equal(f.transport.queueFiles().length, 1);
+});
 
 test('真实嵌套卡片回调读取任务和选项，更新卡片带同一任务编号', async t => {
   const calls = []; const f = fixture(t, {onCard: async event => {calls.push(event); return '已选择';}});

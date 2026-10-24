@@ -16,7 +16,7 @@ function fakeHost(sessions, ws = {items: [], archived: new Set(), pinned: []}) {
   const host = {
     calls, onPrompt: null, ws, permission: 'read-only', goalState: null, armed: false,
     async listSessions() { return sessions; },
-    async projections(sid) { return {title: sessions.find(s => s.sessionId === sid)?.title || null, permissions: {currentValue: host.permission}, goal: host.goalState, modelSelection: {next: {provider: 'mock', model: 'echo', reasoningEffort: 'low'}}, contextPressure: {pressureTokens: 2000, projectedTokens: 2000, contextWindow: 100000}}; },
+    async projections(sid) { return {title: sessions.find(s => s.sessionId === sid)?.title || null, permissions: {currentValue: host.permission}, goal: host.goalState, modelSelection: sid === 's-new' ? {} : {next: {provider: 'mock', model: 'echo', reasoningEffort: 'low'}}, contextPressure: {pressureTokens: 2000, projectedTokens: 2000, contextWindow: 100000}}; },
     async createSession(place) {
       calls.push(['create', place]);
       const w = ws.items.find(x => x.id === place.workspaceId);
@@ -45,7 +45,7 @@ function fakeHost(sessions, ws = {items: [], archived: new Set(), pinned: []}) {
       return {kind: 'success', text: 'Goal created'};
     },
     async cancel(sid) { calls.push(['cancel', sid]); },
-    async modelCatalog() { return {routableProviders: ['mock'], groups: [{id: 'mock', models: [{id: 'echo', name: 'Echo', reasoning: {efforts: [{id: 'low'}, {id: 'high'}], defaultEffort: 'low'}}, {id: 'echo2', name: 'Echo 2'}]}]}; },
+    async modelCatalog() { return {default: {provider: 'mock', model: 'echo2'}, routableProviders: ['mock'], groups: [{id: 'mock', models: [{id: 'echo', name: 'Echo', reasoning: {efforts: [{id: 'low'}, {id: 'high'}], defaultEffort: 'low'}}, {id: 'echo2', name: 'Echo 2'}]}]}; },
     async selectModel(sid, sel) { calls.push(['select', sid, sel]); return sel; },
     async compact(sid) { calls.push(['compact', sid]); return {kind: 'success', text: 'Compacted 3 history items.'}; },
     async snapshot() { return []; },
@@ -215,6 +215,13 @@ test('创建会话：session/create 后投递首条，等模型标题，完成�
   assert.match(JSON.stringify(card), /Final Name/);
   await tick(80);
   assert.match(textOf(f.sent.at(-1)), /任务完成[\s\S]*Final Name[\s\S]*done/);
+});
+
+test('创建会话：未发首条时模型投影为空，卡片显示部署默认模型', async t => {
+  const f = fixture(t);
+  const card = JSON.stringify(await f.say('创建会话'));
+  assert.match(card, /echo2/);
+  assert.doesNotMatch(card, /未知/);
 });
 
 test('引用推送回复：按会话名切到被引用的会话再投递', async t => {
