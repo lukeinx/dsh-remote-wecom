@@ -157,6 +157,7 @@ test('DSH + 插件 + 假企微：创建/活跃/历史/模型/停止/压缩/状�
   assert.ok(!texts().some(x => /needle/.test(x)), '未绑定的电脑轮次不推送');
   // DSH persists the session log asynchronously; stopping right after the turn can lose it.
   await delay(2000);
+  await waitText(/命令/, say('帮助')); // 手机刚用过，重启后才会收到通知
   await halt();
   let at = sent.length;
   boot();

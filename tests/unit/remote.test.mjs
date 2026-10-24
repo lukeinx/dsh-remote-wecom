@@ -52,16 +52,16 @@ function fakeHost(sessions, ws = {items: [], archived: new Set(), pinned: []}) {
   };
   return host;
 }
-function fakeTransport(sent) {
-  return () => ({connected: true, start() {}, stop() {}, drain() {}, bound: () => true, send(m) { sent.push(m); return Promise.resolve(true); }});
+function fakeTransport(sent, drains = []) {
+  return () => ({connected: true, start() {}, stop() {}, drain(o) { drains.push(o); }, bound: () => true, send(m) { sent.push(m); return Promise.resolve(true); }});
 }
 function fixture(t, {sessions, wsState, config = {}, onRestart = null} = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-unit-'));
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-ws-'));
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({botId: 'b', secret: 's', ownerUserId: 'owner', openDesktop: false, nameWaitMs: 300, ...config}));
   const host = fakeHost(sessions || [{sessionId: 's1', cwd: ws, agentAvailable: true, running: false, title: 'Alpha', prompts: ['第一句']}], wsState);
-  const sent = [];
-  const remote = createRemote({host, dir, config: loadConfig(dir), createTransport: fakeTransport(sent), onRestart});
+  const sent = [], drains = [];
+  const remote = createRemote({host, dir, config: loadConfig(dir), createTransport: fakeTransport(sent, drains), onRestart});
   remote.start();
   t.after(async () => { await remote.stop('测试结束'); fs.rmSync(dir, {recursive: true, force: true}); fs.rmSync(ws, {recursive: true, force: true}); });
   const say = (text, quote = '') => remote.handleCommand(text, [], {media: false}, {quote});
@@ -73,7 +73,7 @@ function fixture(t, {sessions, wsState, config = {}, onRestart = null} = {}) {
     remote.turnEnd(sid, {kind, error});
     remote.sessionStatus(sid, false);
   };
-  return {remote, host, sent, say, turn, dir, ws};
+  return {remote, host, sent, drains, say, turn, dir, ws};
 }
 const boundSid = f => fs.readFileSync(path.join(f.dir, '.current'), 'utf8').trim();
 async function bindFirst(f) {
@@ -129,6 +129,38 @@ test('重启：有任务运行时拒绝并列出会话，「重启 force」交�
   assert.match(textOf(await f.say('重启 force')), /正在重启/);
   await tick(1700);
   assert.equal(restarts, 1);
+});
+
+test('重启通知：手机没用过、也没有推送中的任务时不发；手机刚用过或显式要求时发', async t => {
+  const idle = fixture(t);
+  await idle.remote.stop('插件已停止');
+  assert.deepEqual(idle.drains, [{notify: false}]);
+  const used = fixture(t);
+  await used.say('帮助');
+  await used.remote.stop('插件已停止');
+  assert.deepEqual(used.drains, [{notify: true}]);
+  const forced = fixture(t);
+  await forced.remote.stop('收到重启命令', {notify: true});
+  assert.deepEqual(forced.drains, [{notify: true}]);
+});
+
+test('重启通知：手机很久没用，但关注的会话有任务被中断时照常发', async t => {
+  const later = Date.now() + 31 * 60 * 1000;
+  const quiet = fixture(t);
+  await bindFirst(quiet);
+  t.mock.method(Date, 'now', () => later);
+  await quiet.remote.stop('插件已停止');
+  assert.deepEqual(quiet.drains, [{notify: false}]);
+  t.mock.restoreAll();
+  const busy = fixture(t);
+  await bindFirst(busy);
+  const sid = boundSid(busy);
+  busy.remote.sessionStatus(sid, true);
+  busy.remote.turnBegin(sid, {text: '电脑上发起'});
+  t.mock.method(Date, 'now', () => later);
+  await busy.remote.stop('插件已停止');
+  t.mock.restoreAll();
+  assert.deepEqual(busy.drains, [{notify: true}]);
 });
 
 test('停止：调 session/cancel，aborted 收尾且没有文本时不再多推一条', async t => {

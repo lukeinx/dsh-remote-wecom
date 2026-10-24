@@ -114,7 +114,7 @@ DeepSeek Harness.app ── host 进程
 - 入口：`ctx.slots.inject('settings.section', ...)` 注册 id `dsh-remote-wecom`、标签「企微远程 / WeCom Remote」、`order: 30`（排在原生分区之后）。文案走 `ctx.locale`（zh / en）。样式是 `drw-` 前缀的类，只注入一次 `<style>`，只用 DSH 的 CSS 变量，照抄原生设置的行、按钮、开关、输入框尺寸，深浅色跟随宿主。二维码底固定白色，深色模式下也能扫。
 - 传输：host 侧 `ctx.connection.fetch.register({path: '/api/dsh-remote-wecom/settings', methods: ['POST']})`，放在 `ctx.effect` 里随插件注销。客户端 `ctx.connection.rpc.call('/api', 'dsh-remote-wecom/settings', {method, payload})`，信封 `client-request` / `server-response`，失败结果带 `error.details`。
 - 方法：`state`、`qrStart` / `qrCancel`、`saveCredentials`、`newBindCode`、`unbind`、`setPrefs`、`setPlace`、`restart`。都返回完整的 `state`（连接状态与原因、掩码后的 BotID 和主人、绑定码与到期时间、自动绑定窗口、偏好、新会话位置、扫码状态），参数不对时返回 `{ok: false, error: {code: 'invalid', message}}`，前端在对应行内显示红字。前端每 2 秒拉一次 `state`（页面隐藏时跳过）。
-- 生效：写完配置立即重建遥控实例，并先刷新 mtime 快照，5 秒轮询不会再触发一次。改偏好、解绑、重新生成绑定码时不发「已重启」通知；「重启服务」和换凭证照常通知。请求最多等 2.5 秒重连完成再返回状态。
+- 生效：写完配置立即重建遥控实例，并先刷新 mtime 快照，5 秒轮询不会再触发一次。改偏好、解绑、重新生成绑定码时不发「已重启」通知；「重启服务」和其他重启一样，只在手机 30 分钟内用过或有推送中的任务被中断时通知；换凭证后是新机器人，发欢迎语。请求最多等 2.5 秒重连完成再返回状态。
 
 ### 扫码创建机器人
 
