@@ -660,3 +660,23 @@ test('目标：卡片按状态给操作；暂停 / 继续 / 修改 / 清除走 /
   assert.match(JSON.stringify(await f.say('目标 清除')), /已清除目标/);
   assert.equal(f.host.goalState, null);
 });
+
+test('回顾：选择会话卡片带提示，发「回顾」推送上一轮', async t => {
+  const f = fixture(t);
+  await f.say('活跃会话');
+  const selected = await f.say('选择会话 1');
+  assert.equal(selected.card.sub_title_text, '发送「回顾」，查看上一轮内容');
+  assert.match(textOf(await f.say('回顾')), /暂无可回顾/);
+  const now = Date.now();
+  f.host.snapshot = async () => [
+    {type: 'turn/start', seq: 1, time: now - 70_000, data: {}},
+    {type: 'user/message', seq: 2, time: now - 70_000, data: {source: {kind: 'user'}, content: [{type: 'text', text: '上次的问题'}]}},
+    {type: 'assistant/message', seq: 3, time: now - 10_000, data: {message: {content: [{type: 'text', text: '上次的答复'}]}}},
+    {type: 'turn/end', seq: 4, time: now - 10_000, data: {reason: {kind: 'completed'}}},
+  ];
+  const reply = textOf(await f.say('recap'));
+  assert.match(reply, /📜 回顾 · Alpha/);
+  assert.match(reply, /> 上次的问题/);
+  assert.match(reply, /上次的答复/);
+  assert.match(reply, /运行：1分0秒/);
+});

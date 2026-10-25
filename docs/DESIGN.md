@@ -87,6 +87,7 @@ DeepSeek Harness.app ── host 进程
 | `stop` | `session/cancel` |
 | `status` | projections：目录（分支）、模型·思考强度、上下文 `pressureTokens / contextWindow`、token 用量 |
 | `art` 产物 | `write` / `edit` 的 `tool/call.arguments.file_path` 与 `tool/result.meta.path`，`present` 的 `files[].path`，回复里链接给出的文件；来自实时事件，首次查看时用 `session/follow` 快照补扫；过滤规则沿用 pi remote（扩展名白名单、排除 git 跟踪文件、隐藏目录、临时目录） |
+| `recap` 回顾 | `session/follow` 首帧快照里最近一个有消息的 `turn/start` … `turn/end`：提问取第一条 `source.kind` 为 `user` / `schedule` / `goal` 的用户消息，正文取最后一条有文字的 `assistant/message`；进行中和被拦下的空轮次跳过，超长转 Markdown 文档。「选择会话」卡片带一行提示 |
 | `关注` / `取关`、引用路由、待投递选会话卡片 | 宿主无关，原样保留；`关注` 额外打开「电脑发起的审批转手机」，`取关` 关闭 |
 | `restart` | 重启插件内的遥控服务（关传输、重载配置、重连），有任务运行时默认拒绝 |
 
