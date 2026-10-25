@@ -199,7 +199,7 @@ test('DSH + 插件 + 假企微：创建/活跃/历史/模型/停止/压缩/状�
     assert.equal(card.emphasis_content.title, 'high · 高');
     const status = await waitText(/空闲 · alpha/, say('状态'));
     assert.match(status, /模型：echo2 · high/);
-    assert.match(status, /类型：桌面会话/);
+    assert.doesNotMatch(status, /类型：/);
     assert.match(status, /上下文：[\d.]+% \/ 100k/);
   });
 

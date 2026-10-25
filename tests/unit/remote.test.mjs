@@ -386,6 +386,16 @@ test('创建会话：非工作区目录进未分组，卡片补显示目录', as
   assert.match(card, /"keyname":"目录"/);
 });
 
+test('类型：会话类型不在状态、选择与创建卡片上展示', async t => {
+  const f = fixture(t);
+  const selected = await bindFirst(f);
+  assert.doesNotMatch(selected, /桌面会话|历史会话|类型：/);
+  const status = textOf(await f.say('状态'));
+  assert.doesNotMatch(status, /桌面会话|历史会话|类型：/);
+  const created = JSON.stringify(await f.say('创建后台会话 第一句'));
+  assert.doesNotMatch(created, /桌面会话|历史会话|"keyname":"类型"/);
+});
+
 test('归档：活跃与历史默认不显示，「历史会话 全部」标出；手机投递前先取消归档；被拦下的轮次推失败', async t => {
   const f = fixture(t, {
     sessions: [

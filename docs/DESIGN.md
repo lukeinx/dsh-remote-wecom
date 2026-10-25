@@ -64,7 +64,7 @@ DeepSeek Harness.app ── host 进程
 
 ### 会话与轮次
 
-- 每个 DSH 会话一个 `DshTarget`（替换 `TuiTarget` / `RpcTarget`），`kind = 'dsh'`，卡片类型文案「桌面会话」。「活跃会话」= 运行中 / 当前 / 置顶，加最近 24 小时 `updatedAt` 有更新的（最多 10 个），不含 subagent 与已归档；其余进「历史会话」，带关键词检索时活跃会话也参与。不用 `agentAvailable` 判定：DSH 不回收空闲 Agent，它只表示本次 host 启动后被激活过，host 重启即全部归零。
+- 每个 DSH 会话一个 `DshTarget`（替换 `TuiTarget` / `RpcTarget`），`kind = 'dsh'`，只用于路由，不在卡片上展示类型：pi remote 的「终端可见 / 后台会话」在 DSH 没有对应形态，而「历史会话」一经打开就变成 `DshTarget`，展示出来只是插件内部状态。「活跃会话」= 运行中 / 当前 / 置顶，加最近 24 小时 `updatedAt` 有更新的（最多 10 个），不含 subagent 与已归档；其余进「历史会话」，带关键词检索时活跃会话也参与。不用 `agentAvailable` 判定：DSH 不回收空闲 Agent，它只表示本次 host 启动后被激活过，host 重启即全部归零。
 - 手机投递的 `requestId` 以 `wecom-` 开头。一轮的来源看该轮第一条 `source.kind === 'user'` 的 `user/message`：`rpcId` 带前缀为手机发起，否则为电脑发起（`local`）。
 - 首条是 `schedule` / `goal` 来源的轮次带 `trigger`：会话最近一次用户消息来自手机（记在 `phone-sessions.json`，跨重启）时按手机发起处理。手机 `目标 描述` / `目标 继续` 也记为手机发起。`goal` 轮次在 `turn/end` 时按已收到的 `goal/change` 判断：目标仍是 active 就压下这一轮不推；轮内变为 complete / blocked / paused，或两轮之间来了非 active 的 `goal/change`（电脑上暂停、清除、到达上限）时推最后一轮；手机命令引起的变化由命令自己回复。
 - 同一轮里的第二条用户消息是插话：对应的手机 loop 标为并入（不单独回传），这一轮改为推回手机。
