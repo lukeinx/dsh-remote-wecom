@@ -719,3 +719,27 @@ test('回顾：选择会话卡片带提示，发「回顾」推送上一轮', as
   assert.equal(busy.card.sub_title_text, undefined);
   assert.doesNotMatch(textOf(busy), /回顾/);
 });
+
+test('状态：还有其他运行中会话时先弹选择卡片，点选后回该会话状态且不切换当前会话', async t => {
+  const f = fixture(t, {sessions: [
+    {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},
+    {sessionId: 's2', cwd: os.homedir(), agentAvailable: true, title: 'Beta'},
+  ]});
+  await bindFirst(f);
+  const cur = boundSid(f);
+  const other = cur === 's1' ? 's2' : 's1';
+  const [curName, otherName] = cur === 's1' ? ['Alpha', 'Beta'] : ['Beta', 'Alpha'];
+  assert.match(textOf(await f.say('状态')), /空闲/);
+  f.remote.sessionStatus(other, true);
+  f.remote.turnBegin(other, {text: '电脑上发起'});
+  const card = await f.say('状态');
+  assert.equal(card.card.card_type, 'vote_interaction');
+  const opts = optionsOf(card);
+  assert.equal(opts.length, 2);
+  assert.match(opts[0], new RegExp(`^${curName} · .*← 当前$`));
+  assert.match(opts[1], new RegExp(`^${otherName} · .*← 运行中$`));
+  const reply = textOf(await f.remote.handleCardCallback({taskId: card.card.task_id, optionId: card.card.options[1].id}));
+  assert.match(reply, new RegExp(`⏳ 运行中 · ${otherName}`));
+  assert.match(reply, /引用消息，回复会发给该会话/);
+  assert.equal(boundSid(f), cur);
+});
