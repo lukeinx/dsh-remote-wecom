@@ -222,6 +222,8 @@ test('创建会话：未发首条时模型投影为空，卡片显示部署默�
   const card = JSON.stringify(await f.say('创建会话'));
   assert.match(card, /echo2/);
   assert.doesNotMatch(card, /未知/);
+  assert.match(card, /"title":"新会话"/);
+  assert.doesNotMatch(card, /新会话 ·/);
 });
 
 test('引用推送回复：按会话名切到被引用的会话再投递', async t => {
@@ -239,6 +241,38 @@ test('引用推送回复：按会话名切到被引用的会话再投递', async
   assert.equal(p[1], other.sessionId);
   assert.equal(boundSid(f), other.sessionId);
   assert.match(reply, new RegExp(other.name));
+});
+
+test('引用推送回复：被引用的会话不在活跃中时，从宿主会话里找到并打开再投递', async t => {
+  const f = fixture(t, {sessions: [
+    {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},
+    {sessionId: 's2', cwd: os.homedir(), agentAvailable: false, title: 'Beta', updatedAt: 1},
+  ]});
+  await bindFirst(f);
+  assert.ok(![...f.remote.targets.values()].some(t => t.sessionId === 's2'));
+  f.host.onPrompt = (sid, id, text) => f.turn(sid, {rpcId: id, text});
+  await f.say('发给 Beta', '🏁 任务完成 · Beta\nbody');
+  assert.equal(f.host.calls.filter(c => c[0] === 'prompt').at(-1)[1], 's2');
+  assert.equal(boundSid(f), 's2');
+});
+
+test('引用推送回复：找不到或重名时不投递，暂存待选择；命令照常执行', async t => {
+  const f = fixture(t, {sessions: [
+    {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},
+    {sessionId: 's2', cwd: os.homedir(), agentAvailable: true, title: 'Twin'},
+    {sessionId: 's3', cwd: os.homedir(), agentAvailable: true, title: 'Twin'},
+  ]});
+  await bindFirst(f);
+  const cur = boundSid(f);
+  for (const name of ['已关闭的会话', 'Twin']) {
+    const held = (await f.say('这条本想回那边', `🏁 任务完成 · ${name}\nbody`)).card;
+    assert.equal(held.title, '✉️ 引用的会话不在，发给哪个？');
+    assert.match(held.desc, new RegExp(`找不到「${name}」`));
+    assert.match(held.options[0].text, /← 当前$/);
+  }
+  assert.ok(!f.host.calls.some(c => c[0] === 'prompt'));
+  assert.equal(boundSid(f), cur);
+  assert.match(textOf(await f.say('帮助', '🏁 任务完成 · 已关闭的会话')), /帮助|命令/);
 });
 
 test('审批：只接手机发起的轮次；绑定会话推卡片，手机选「允许」兑现；未绑定会话先挂起', async t => {
@@ -353,8 +387,10 @@ test('工作区：卡片列出 Desktop 工作区与未分组；创建会话按�
   const card = await f.say('工作区');
   assert.deepEqual(optionsOf(card).map(x => x.split(' · ')[0]), ['Proj', '未分组', 'l']);
   assert.ok(optionsOf(card).some(x => /^未分组 · ← 当前$/.test(x)));
-  await f.say('创建后台会话 Proj 第一句');
+  const inWs = JSON.stringify(await f.say('创建后台会话 Proj 第一句'));
   assert.deepEqual(f.host.calls.find(c => c[0] === 'create')[1], {workspaceId: 'w1'});
+  assert.match(inWs, /"value":"Proj"/);
+  assert.doesNotMatch(inWs, /"keyname":"目录"/);
   assert.ok(f.host.calls.some(c => c[0] === 'prompt' && c[3] === '第一句'));
   f.host.calls.length = 0;
   await f.say('创建后台会话 p');
@@ -371,6 +407,25 @@ test('工作区：卡片列出 Desktop 工作区与未分组；创建会话按�
   await f.say('创建后台会话 未分组 散活');
   assert.deepEqual(f.host.calls.find(c => c[0] === 'create')[1], {});
   assert.match(textOf(await f.say('工作区 不存在的')), /没有叫/);
+});
+
+test('创建会话：非工作区目录进未分组，卡片补显示目录', async t => {
+  const loose = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-loose-')));
+  t.after(() => fs.rmSync(loose, {recursive: true, force: true}));
+  const f = fixture(t, {config: {dirAliases: {l: loose}}});
+  const card = JSON.stringify(await f.say('创建后台会话 l'));
+  assert.match(card, /"value":"未分组"/);
+  assert.match(card, /"keyname":"目录"/);
+});
+
+test('类型：会话类型不在状态、选择与创建卡片上展示', async t => {
+  const f = fixture(t);
+  const selected = await bindFirst(f);
+  assert.doesNotMatch(selected, /桌面会话|历史会话|类型：/);
+  const status = textOf(await f.say('状态'));
+  assert.doesNotMatch(status, /桌面会话|历史会话|类型：/);
+  const created = JSON.stringify(await f.say('创建后台会话 第一句'));
+  assert.doesNotMatch(created, /桌面会话|历史会话|"keyname":"类型"/);
 });
 
 test('归档：活跃与历史默认不显示，「历史会话 全部」标出；手机投递前先取消归档；被拦下的轮次推失败', async t => {
@@ -636,4 +691,55 @@ test('目标：卡片按状态给操作；暂停 / 继续 / 修改 / 清除走 /
   assert.equal(f.host.goalState.goal.objective, '写完月报');
   assert.match(JSON.stringify(await f.say('目标 清除')), /已清除目标/);
   assert.equal(f.host.goalState, null);
+});
+
+test('回顾：选择会话卡片带提示，发「回顾」推送上一轮', async t => {
+  const f = fixture(t);
+  await f.say('活跃会话');
+  const selected = await f.say('选择会话 1');
+  assert.equal(selected.card.sub_title_text, '发送「回顾」，查看上一轮内容');
+  assert.match(textOf(await f.say('回顾')), /暂无可回顾/);
+  const now = Date.now();
+  f.host.snapshot = async () => [
+    {type: 'turn/start', seq: 1, time: now - 70_000, data: {}},
+    {type: 'user/message', seq: 2, time: now - 70_000, data: {source: {kind: 'user'}, content: [{type: 'text', text: '上次的问题'}]}},
+    {type: 'assistant/message', seq: 3, time: now - 10_000, data: {message: {content: [{type: 'text', text: '上次的答复'}]}}},
+    {type: 'turn/end', seq: 4, time: now - 10_000, data: {reason: {kind: 'completed'}}},
+  ];
+  const reply = textOf(await f.say('recap'));
+  assert.match(reply, /📜 回顾 · Alpha/);
+  assert.match(reply, /> 上次的问题/);
+  assert.match(reply, /上次的答复/);
+  assert.match(reply, /运行：1分0秒/);
+  f.remote.sessionStatus('s1', true);
+  f.remote.turnBegin('s1', {text: '电脑上发起'});
+  await f.say('活跃会话');
+  const busy = await f.say('选择会话 1');
+  assert.match(busy.card.main_title.desc, /进行中/);
+  assert.equal(busy.card.sub_title_text, undefined);
+  assert.doesNotMatch(textOf(busy), /回顾/);
+});
+
+test('状态：还有其他运行中会话时先弹选择卡片，点选后回该会话状态且不切换当前会话', async t => {
+  const f = fixture(t, {sessions: [
+    {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},
+    {sessionId: 's2', cwd: os.homedir(), agentAvailable: true, title: 'Beta'},
+  ]});
+  await bindFirst(f);
+  const cur = boundSid(f);
+  const other = cur === 's1' ? 's2' : 's1';
+  const [curName, otherName] = cur === 's1' ? ['Alpha', 'Beta'] : ['Beta', 'Alpha'];
+  assert.match(textOf(await f.say('状态')), /空闲/);
+  f.remote.sessionStatus(other, true);
+  f.remote.turnBegin(other, {text: '电脑上发起'});
+  const card = await f.say('状态');
+  assert.equal(card.card.card_type, 'vote_interaction');
+  const opts = optionsOf(card);
+  assert.equal(opts.length, 2);
+  assert.match(opts[0], new RegExp(`^${curName} · .*← 当前$`));
+  assert.match(opts[1], new RegExp(`^${otherName} · .*← 运行中$`));
+  const reply = textOf(await f.remote.handleCardCallback({taskId: card.card.task_id, optionId: card.card.options[1].id}));
+  assert.match(reply, new RegExp(`⏳ 运行中 · ${otherName}`));
+  assert.match(reply, /引用消息，回复会发给该会话/);
+  assert.equal(boundSid(f), cur);
 });

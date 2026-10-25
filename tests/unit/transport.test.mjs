@@ -306,6 +306,21 @@ test('刚发过消息时进会话不重复欢迎，静默期后恢复；未绑�
   assert.deepEqual(u.sent.map(m=>[m.to,m.body.markdown?.content]),[['someone','尚未绑定。请在电脑上执行 `dsh-remote-wecom bind`，把显示的 6 位绑定码发到这里。']]);
 });
 
+test('任务运行中或主人刚发过消息时，进会话不回欢迎语', async t => {
+  let busy = true;
+  const f=fixture(t,{isBusy:()=>busy}); f.transport.connected=true;
+  const welcomes=()=>f.sent.map(m=>m.body.markdown?.content).filter(x=>x?.startsWith('DSH Remote'));
+  f.client.emit('event.enter_chat',f.frame('b1')); await turn();
+  assert.deepEqual(welcomes(),[]);
+  busy = false;
+  f.client.emit('message',f.frame('b2','帮我看下日志')); await turn();
+  f.client.emit('event.enter_chat',f.frame('b3')); await turn();
+  assert.deepEqual(welcomes(),[]);
+  f.transport.lastOwnerRecvAt=Date.now()-3*60*1000; f.transport.lastOwnerSendAt=0;
+  f.client.emit('event.enter_chat',f.frame('b4')); await turn();
+  assert.deepEqual(welcomes(),['DSH Remote 已连接，发送 `帮助` 查看命令。']);
+});
+
 test('重启通知后立即进会话，只出现重启通知一条', async t => {
   const a=fixture(t); a.transport.start(); a.client.emit('authenticated'); await turn(); a.transport.drain();
   const b=fixture(t,{},a.dir); const welcomes=[];
