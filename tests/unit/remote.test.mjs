@@ -243,6 +243,38 @@ test('引用推送回复：按会话名切到被引用的会话再投递', async
   assert.match(reply, new RegExp(other.name));
 });
 
+test('引用推送回复：被引用的会话不在活跃中时，从宿主会话里找到并打开再投递', async t => {
+  const f = fixture(t, {sessions: [
+    {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},
+    {sessionId: 's2', cwd: os.homedir(), agentAvailable: false, title: 'Beta', updatedAt: 1},
+  ]});
+  await bindFirst(f);
+  assert.ok(![...f.remote.targets.values()].some(t => t.sessionId === 's2'));
+  f.host.onPrompt = (sid, id, text) => f.turn(sid, {rpcId: id, text});
+  await f.say('发给 Beta', '🏁 任务完成 · Beta\nbody');
+  assert.equal(f.host.calls.filter(c => c[0] === 'prompt').at(-1)[1], 's2');
+  assert.equal(boundSid(f), 's2');
+});
+
+test('引用推送回复：找不到或重名时不投递，暂存待选择；命令照常执行', async t => {
+  const f = fixture(t, {sessions: [
+    {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},
+    {sessionId: 's2', cwd: os.homedir(), agentAvailable: true, title: 'Twin'},
+    {sessionId: 's3', cwd: os.homedir(), agentAvailable: true, title: 'Twin'},
+  ]});
+  await bindFirst(f);
+  const cur = boundSid(f);
+  for (const name of ['已关闭的会话', 'Twin']) {
+    const held = (await f.say('这条本想回那边', `🏁 任务完成 · ${name}\nbody`)).card;
+    assert.equal(held.title, '✉️ 引用的会话不在，发给哪个？');
+    assert.match(held.desc, new RegExp(`找不到「${name}」`));
+    assert.match(held.options[0].text, /← 当前$/);
+  }
+  assert.ok(!f.host.calls.some(c => c[0] === 'prompt'));
+  assert.equal(boundSid(f), cur);
+  assert.match(textOf(await f.say('帮助', '🏁 任务完成 · 已关闭的会话')), /帮助|命令/);
+});
+
 test('审批：只接手机发起的轮次；绑定会话推卡片，手机选「允许」兑现；未绑定会话先挂起', async t => {
   const f = fixture(t, {sessions: [
     {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},
@@ -679,4 +711,11 @@ test('回顾：选择会话卡片带提示，发「回顾」推送上一轮', as
   assert.match(reply, /> 上次的问题/);
   assert.match(reply, /上次的答复/);
   assert.match(reply, /运行：1分0秒/);
+  f.remote.sessionStatus('s1', true);
+  f.remote.turnBegin('s1', {text: '电脑上发起'});
+  await f.say('活跃会话');
+  const busy = await f.say('选择会话 1');
+  assert.match(busy.card.main_title.desc, /进行中/);
+  assert.equal(busy.card.sub_title_text, undefined);
+  assert.doesNotMatch(textOf(busy), /回顾/);
 });
