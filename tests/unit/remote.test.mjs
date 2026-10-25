@@ -222,6 +222,8 @@ test('创建会话：未发首条时模型投影为空，卡片显示部署默�
   const card = JSON.stringify(await f.say('创建会话'));
   assert.match(card, /echo2/);
   assert.doesNotMatch(card, /未知/);
+  assert.match(card, /"title":"新会话"/);
+  assert.doesNotMatch(card, /新会话 ·/);
 });
 
 test('引用推送回复：按会话名切到被引用的会话再投递', async t => {
@@ -353,8 +355,10 @@ test('工作区：卡片列出 Desktop 工作区与未分组；创建会话按�
   const card = await f.say('工作区');
   assert.deepEqual(optionsOf(card).map(x => x.split(' · ')[0]), ['Proj', '未分组', 'l']);
   assert.ok(optionsOf(card).some(x => /^未分组 · ← 当前$/.test(x)));
-  await f.say('创建后台会话 Proj 第一句');
+  const inWs = JSON.stringify(await f.say('创建后台会话 Proj 第一句'));
   assert.deepEqual(f.host.calls.find(c => c[0] === 'create')[1], {workspaceId: 'w1'});
+  assert.match(inWs, /"value":"Proj"/);
+  assert.doesNotMatch(inWs, /"keyname":"目录"/);
   assert.ok(f.host.calls.some(c => c[0] === 'prompt' && c[3] === '第一句'));
   f.host.calls.length = 0;
   await f.say('创建后台会话 p');
@@ -371,6 +375,15 @@ test('工作区：卡片列出 Desktop 工作区与未分组；创建会话按�
   await f.say('创建后台会话 未分组 散活');
   assert.deepEqual(f.host.calls.find(c => c[0] === 'create')[1], {});
   assert.match(textOf(await f.say('工作区 不存在的')), /没有叫/);
+});
+
+test('创建会话：非工作区目录进未分组，卡片补显示目录', async t => {
+  const loose = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-loose-')));
+  t.after(() => fs.rmSync(loose, {recursive: true, force: true}));
+  const f = fixture(t, {config: {dirAliases: {l: loose}}});
+  const card = JSON.stringify(await f.say('创建后台会话 l'));
+  assert.match(card, /"value":"未分组"/);
+  assert.match(card, /"keyname":"目录"/);
 });
 
 test('归档：活跃与历史默认不显示，「历史会话 全部」标出；手机投递前先取消归档；被拦下的轮次推失败', async t => {
