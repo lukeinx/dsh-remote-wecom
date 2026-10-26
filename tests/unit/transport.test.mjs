@@ -410,7 +410,7 @@ test('未绑定：绑定码错误计次作废，正确码绑定首个发送者�
   const cards = f.sent.filter(m => m.to === 'owner' && m.body.msgtype === 'template_card');
   assert.equal(cards.length, 1);
   assert.equal(cards[0].body.template_card.emphasis_content.title, '绑定成功');
-  assert.deepEqual(cards[0].body.template_card.jump_list.map(j => j.question), ['活跃会话', '帮助']);
+  assert.deepEqual(cards[0].body.template_card.jump_list.map(j => j.question), ['最近会话', '帮助']);
   assert.equal(f.transport.status().bound, true);
 });
 test('未绑定：错误 5 次后绑定码作废，过期码不能绑定', async t => {

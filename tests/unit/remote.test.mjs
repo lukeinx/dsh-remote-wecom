@@ -243,9 +243,11 @@ test('引用推送回复：按会话名切到被引用的会话再投递', async
   assert.match(reply, new RegExp(other.name));
 });
 
-test('引用推送回复：被引用的会话不在活跃中时，从宿主会话里找到并打开再投递', async t => {
+test('引用推送回复：被引用的会话不在最近会话中时，从宿主会话里找到并打开再投递', async t => {
+  const now = Date.now();
   const f = fixture(t, {sessions: [
-    {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},
+    {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha', updatedAt: now},
+    ...Array.from({length: 10}, (_, i) => ({sessionId: `n${i}`, cwd: os.homedir(), agentAvailable: false, title: `Newer${i}`, updatedAt: now - (i + 1) * 1000})),
     {sessionId: 's2', cwd: os.homedir(), agentAvailable: false, title: 'Beta', updatedAt: 1},
   ]});
   await bindFirst(f);
@@ -378,6 +380,7 @@ test('host 审批抢答：Desktop 立即 unavailable 时只等手机；手机先
 
 const wsFixture = (dir, extra = {}) => ({items: [{id: 'w1', path: dir, title: 'Proj', sessionIds: ['s1']}], archived: new Set(), pinned: [], ...extra});
 const optionsOf = m => m?.card?.options?.map(o => o.text) || [];
+const pick = (f, m, i) => f.remote.handleCardCallback({taskId: m.card.task_id, optionId: m.card.options[i].id});
 
 test('工作区：卡片列出 Desktop 工作区与未分组；创建会话按工作区名带 workspaceId，未分组和非工作区目录不带', async t => {
   const proj = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-proj-')));
@@ -454,7 +457,7 @@ test('归档：活跃与历史默认不显示，「历史会话 全部」标出�
   assert.match(blocked, /任务失败[\s\S]*归档/);
 });
 
-test('活跃列表：置顶在前，其余按工作区顺序分组、未分组最后', async t => {
+test('最近会话：置顶在前，其余跨工作区按最近活动，选项带工作区名', async t => {
   const now = Date.now();
   const f = fixture(t, {
     sessions: [
@@ -465,11 +468,60 @@ test('活跃列表：置顶在前，其余按工作区顺序分组、未分组�
     ],
     wsState: {items: [{id: 'w1', path: '/x', title: 'W1', sessionIds: ['c', 'd']}, {id: 'w2', path: '/y', title: 'W2', sessionIds: ['b']}], archived: new Set(), pinned: ['d']},
   });
-  const card = await f.say('活跃会话');
-  assert.deepEqual(optionsOf(card).map(x => x.split(' · ').slice(0, 2).join(' · ')), ['📌 Pinned · W1', 'InW1 · W1', 'InW2 · W2', 'Loose · 未分组']);
+  const card = await f.say('最近会话');
+  assert.equal(card.card.title, '🕘 最近会话');
+  assert.equal(card.card.desc, '最近 4 个 · 发「历史会话」查更早');
+  assert.deepEqual(optionsOf(card).map(x => x.split(' · ').slice(0, 2).join(' · ')), ['📌 Pinned · W1', 'Loose · 未分组', 'InW2 · W2', 'InW1 · W1']);
 });
 
-test('活跃列表按最近活动：Agent 已加载但久未动的不算，重启后最近用过的仍在，非置顶最多 10 个', async t => {
+test('最近会话 工作区：只列该工作区、选项不再带工作区名；多个命中先选工作区；从筛选卡片选中即切换', async t => {
+  const now = Date.now();
+  const f = fixture(t, {
+    sessions: [
+      {sessionId: 'a', cwd: os.homedir(), agentAvailable: true, title: 'Loose', updatedAt: now},
+      {sessionId: 'b', cwd: os.homedir(), agentAvailable: true, title: 'MpTask', updatedAt: now - 1000},
+      {sessionId: 'c', cwd: os.homedir(), agentAvailable: true, title: 'GenieTask', updatedAt: now - 2000},
+      ...Array.from({length: 10}, (_, i) => ({sessionId: `x${i}`, cwd: os.homedir(), agentAvailable: false, title: `Other${i}`, updatedAt: now - 500 - i})),
+      {sessionId: 'old', cwd: os.homedir(), agentAvailable: false, title: 'OldGenie', updatedAt: 1},
+    ],
+    wsState: {items: [{id: 'w1', path: '/x', title: 'genie', sessionIds: ['c', 'old']}, {id: 'w2', path: '/y', title: 'genie-mp', sessionIds: ['b']}], archived: new Set(), pinned: []},
+  });
+  const card = await f.say('最近会话 Genie');
+  assert.equal(card.card.title, '🕘 最近会话 · genie');
+  assert.deepEqual(optionsOf(card), ['GenieTask', 'OldGenie']);
+  await pick(f, card, 1);
+  assert.equal(boundSid(f), 'old');
+  const many = await f.say('最近会话 gen');
+  assert.equal(many.card.title, '📁 选择工作区');
+  assert.deepEqual(optionsOf(many), ['genie', 'genie-mp']);
+  const mp = await pick(f, many, 1);
+  assert.deepEqual(optionsOf(mp), ['MpTask']);
+  assert.deepEqual(optionsOf(await f.say('最近会话 未分组')).slice(0, 2), ['Loose', 'Other0']);
+  assert.match(textOf(await f.say('最近会话 nope')), /找不到工作区[\s\S]*genie、genie-mp/);
+  assert.equal((await f.say('活跃会话')).card.title, '🕘 最近会话');
+});
+
+test('最近会话排序：待确认 > 运行中 > 置顶 > 最近活动', async t => {
+  const now = Date.now();
+  const f = fixture(t, {
+    sessions: [
+      {sessionId: 'idle', cwd: os.homedir(), agentAvailable: true, title: 'Idle', updatedAt: now},
+      {sessionId: 'pin', cwd: os.homedir(), agentAvailable: true, title: 'Pin', updatedAt: now - 3000},
+      {sessionId: 'run', cwd: os.homedir(), agentAvailable: true, running: true, title: 'Run', updatedAt: now - 2000},
+      {sessionId: 'ask', cwd: os.homedir(), agentAvailable: true, title: 'Ask', updatedAt: now - 1000},
+    ],
+    wsState: {items: [], archived: new Set(), pinned: ['pin']},
+  });
+  await f.say('最近会话');
+  f.remote.turnBegin('ask', {rpcId: 'desk-1', text: '电脑发起'});
+  const parked = f.remote.uiAsk('ask', {kind: 'question', reqId: 'r1', title: '选页面', options: ['A', 'B']});
+  t.after(() => parked.done());
+  const names = optionsOf(await f.say('最近会话')).map(x => x.split(' · ')[0]);
+  assert.deepEqual(names, ['Ask', 'Run', '📌 Pin', 'Idle']);
+  assert.match(optionsOf(await f.say('最近会话'))[0], /← 待确认/);
+});
+
+test('最近会话按最近活动：不限时间窗口，合计最多 10 个，置顶占名额', async t => {
   const now = Date.now();
   const day = 24 * 3600_000;
   const recent = Array.from({length: 12}, (_, i) => ({sessionId: `r${i}`, cwd: os.homedir(), agentAvailable: false, title: `Recent${i}`, updatedAt: now - (i + 1) * 60_000}));
@@ -481,10 +533,10 @@ test('活跃列表按最近活动：Agent 已加载但久未动的不算，重�
     ],
     wsState: {items: [], archived: new Set(), pinned: ['pin']},
   });
-  const names = optionsOf(await f.say('活跃会话')).map(x => x.split(' · ')[0]);
+  const names = optionsOf(await f.say('最近会话')).map(x => x.split(' · ')[0]);
   assert.ok(!names.includes('Stale'), names.join(' | '));
   assert.equal(names[0], '📌 OldPin');
-  assert.deepEqual(names.slice(1), recent.slice(0, 10).map(s => s.title));
+  assert.deepEqual(names.slice(1), recent.slice(0, 9).map(s => s.title));
   assert.match(JSON.stringify(await f.say('历史会话 Recent1')), /Recent1/);
 });
 

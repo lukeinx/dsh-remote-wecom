@@ -183,8 +183,8 @@ test('DSH + 插件 + 假企微：创建/活跃/历史/模型/停止/压缩/状�
     await waitText(/任务完成 · beta/, at);
   });
 
-  await t.test('活跃会话卡片：列出三个会话，标出当前', async () => {
-    const card = await waitCard(c => /活跃会话/.test(c.main_title?.title), say('活跃会话'));
+  await t.test('最近会话卡片：列出三个会话，标出当前', async () => {
+    const card = await waitCard(c => /最近会话/.test(c.main_title?.title), say('活跃会话'));
     const opts = card.checkbox.option_list.map(o => o.text);
     for (const name of ['needle', 'alpha', 'beta']) assert.ok(opts.some(x => x.startsWith(name)), opts.join(' | '));
     assert.ok(opts.some(x => /^beta.*← 当前/.test(x)));
@@ -324,7 +324,7 @@ test('DSH + 插件 + 假企微：创建/活跃/历史/模型/停止/压缩/状�
     at = say('创建后台会话 gamma third task');
     await waitText(/任务完成 · gamma/, at, 30000);
     const sid = fs.readFileSync(path.join(data, '.current'), 'utf8').trim();
-    const live = await waitCard(c => /活跃会话/.test(c.main_title?.title || ''), say('活跃会话'));
+    const live = await waitCard(c => /最近会话/.test(c.main_title?.title || ''), say('活跃会话'));
     assert.ok(live.checkbox.option_list.some(o => o.text.startsWith(`gamma · ${workspace.title}`)), live.checkbox.option_list.map(o => o.text).join(' | '));
     await call('workspace', 'archiveSession', {request: {sessionId: sid}});
     at = say('after archive');
