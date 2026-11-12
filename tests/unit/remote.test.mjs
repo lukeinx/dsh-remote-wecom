@@ -14,15 +14,23 @@ const textOf = m => typeof m === 'string' ? m : m?.text || m?.fallback || '';
 function fakeHost(sessions, ws = {items: [], archived: new Set(), pinned: []}) {
   const calls = [];
   const host = {
-    calls, onPrompt: null, ws, permission: 'read-only', goalState: null, armed: false,
+    calls, onPrompt: null, ws, permission: 'read-only', goalState: null, armed: false, presetOf: {}, started: new Set(),
     async listSessions() { return sessions; },
-    async projections(sid) { return {title: sessions.find(s => s.sessionId === sid)?.title || null, permissions: {currentValue: host.permission}, goal: host.goalState, modelSelection: sid === 's-new' ? {} : {next: {provider: 'mock', model: 'echo', reasoningEffort: 'low'}}, contextPressure: {pressureTokens: 2000, projectedTokens: 2000, contextWindow: 100000}}; },
+    async projections(sid) { return {title: sessions.find(s => s.sessionId === sid)?.title || null, permissions: {currentValue: host.permission}, goal: host.goalState, agentPreset: host.presetOf[sid] || 'standard', sessionListMetadata: {blank: !host.started.has(sid)}, modelSelection: sid === 's-new' ? {} : {next: {provider: 'mock', model: 'echo', reasoningEffort: 'low'}}, contextPressure: {pressureTokens: 2000, projectedTokens: 2000, contextWindow: 100000}}; },
     async createSession(place) {
       calls.push(['create', place]);
       const w = ws.items.find(x => x.id === place.workspaceId);
       if (w) w.sessionIds.unshift('s-new');
       sessions.push({sessionId: 's-new', cwd: w?.path || place.cwd || os.homedir(), agentAvailable: true});
+      host.presetOf['s-new'] = place.agentPreset || 'standard';
       return 's-new';
+    },
+    async presetCatalog() { return ['standard', 'ptc', 'minimal', 'cordis'].map((id, i) => ({id, name: '', isDefault: i === 0})); },
+    async selectPreset(sid, preset) {
+      calls.push(['preset', sid, preset]);
+      if (host.started.has(sid)) throw new Error('This session has already started');
+      host.presetOf[sid] = preset;
+      return preset;
     },
     async prompt(sid, requestId, text, mode) { calls.push(['prompt', sid, requestId, text, mode]); setImmediate(() => host.onPrompt?.(sid, requestId, text, mode)); },
     async workspaces() { return {items: ws.items.map(w => ({...w, sessionIds: [...w.sessionIds]})), archived: new Set(ws.archived), pinned: [...ws.pinned]}; },
@@ -243,9 +251,11 @@ test('引用推送回复：按会话名切到被引用的会话再投递', async
   assert.match(reply, new RegExp(other.name));
 });
 
-test('引用推送回复：被引用的会话不在活跃中时，从宿主会话里找到并打开再投递', async t => {
+test('引用推送回复：被引用的会话不在最近会话中时，从宿主会话里找到并打开再投递', async t => {
+  const now = Date.now();
   const f = fixture(t, {sessions: [
-    {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha'},
+    {sessionId: 's1', cwd: os.homedir(), agentAvailable: true, title: 'Alpha', updatedAt: now},
+    ...Array.from({length: 10}, (_, i) => ({sessionId: `n${i}`, cwd: os.homedir(), agentAvailable: false, title: `Newer${i}`, updatedAt: now - (i + 1) * 1000})),
     {sessionId: 's2', cwd: os.homedir(), agentAvailable: false, title: 'Beta', updatedAt: 1},
   ]});
   await bindFirst(f);
@@ -378,6 +388,7 @@ test('host 审批抢答：Desktop 立即 unavailable 时只等手机；手机先
 
 const wsFixture = (dir, extra = {}) => ({items: [{id: 'w1', path: dir, title: 'Proj', sessionIds: ['s1']}], archived: new Set(), pinned: [], ...extra});
 const optionsOf = m => m?.card?.options?.map(o => o.text) || [];
+const pick = (f, m, i) => f.remote.handleCardCallback({taskId: m.card.task_id, optionId: m.card.options[i].id});
 
 test('工作区：卡片列出 Desktop 工作区与未分组；创建会话按工作区名带 workspaceId，未分组和非工作区目录不带', async t => {
   const proj = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-proj-')));
@@ -454,7 +465,7 @@ test('归档：活跃与历史默认不显示，「历史会话 全部」标出�
   assert.match(blocked, /任务失败[\s\S]*归档/);
 });
 
-test('活跃列表：置顶在前，其余按工作区顺序分组、未分组最后', async t => {
+test('最近会话：置顶在前，其余跨工作区按最近活动，选项带工作区名', async t => {
   const now = Date.now();
   const f = fixture(t, {
     sessions: [
@@ -465,11 +476,60 @@ test('活跃列表：置顶在前，其余按工作区顺序分组、未分组�
     ],
     wsState: {items: [{id: 'w1', path: '/x', title: 'W1', sessionIds: ['c', 'd']}, {id: 'w2', path: '/y', title: 'W2', sessionIds: ['b']}], archived: new Set(), pinned: ['d']},
   });
-  const card = await f.say('活跃会话');
-  assert.deepEqual(optionsOf(card).map(x => x.split(' · ').slice(0, 2).join(' · ')), ['📌 Pinned · W1', 'InW1 · W1', 'InW2 · W2', 'Loose · 未分组']);
+  const card = await f.say('最近会话');
+  assert.equal(card.card.title, '🕘 最近会话');
+  assert.equal(card.card.desc, '最近 4 个 · 发「历史会话」查更早');
+  assert.deepEqual(optionsOf(card).map(x => x.split(' · ').slice(0, 2).join(' · ')), ['📌 Pinned · W1', 'Loose · 未分组', 'InW2 · W2', 'InW1 · W1']);
 });
 
-test('活跃列表按最近活动：Agent 已加载但久未动的不算，重启后最近用过的仍在，非置顶最多 10 个', async t => {
+test('最近会话 工作区：只列该工作区、选项不再带工作区名；多个命中先选工作区；从筛选卡片选中即切换', async t => {
+  const now = Date.now();
+  const f = fixture(t, {
+    sessions: [
+      {sessionId: 'a', cwd: os.homedir(), agentAvailable: true, title: 'Loose', updatedAt: now},
+      {sessionId: 'b', cwd: os.homedir(), agentAvailable: true, title: 'MpTask', updatedAt: now - 1000},
+      {sessionId: 'c', cwd: os.homedir(), agentAvailable: true, title: 'GenieTask', updatedAt: now - 2000},
+      ...Array.from({length: 10}, (_, i) => ({sessionId: `x${i}`, cwd: os.homedir(), agentAvailable: false, title: `Other${i}`, updatedAt: now - 500 - i})),
+      {sessionId: 'old', cwd: os.homedir(), agentAvailable: false, title: 'OldGenie', updatedAt: 1},
+    ],
+    wsState: {items: [{id: 'w1', path: '/x', title: 'genie', sessionIds: ['c', 'old']}, {id: 'w2', path: '/y', title: 'genie-mp', sessionIds: ['b']}], archived: new Set(), pinned: []},
+  });
+  const card = await f.say('最近会话 Genie');
+  assert.equal(card.card.title, '🕘 最近会话 · genie');
+  assert.deepEqual(optionsOf(card), ['GenieTask', 'OldGenie']);
+  await pick(f, card, 1);
+  assert.equal(boundSid(f), 'old');
+  const many = await f.say('最近会话 gen');
+  assert.equal(many.card.title, '📁 选择工作区');
+  assert.deepEqual(optionsOf(many), ['genie', 'genie-mp']);
+  const mp = await pick(f, many, 1);
+  assert.deepEqual(optionsOf(mp), ['MpTask']);
+  assert.deepEqual(optionsOf(await f.say('最近会话 未分组')).slice(0, 2), ['Loose', 'Other0']);
+  assert.match(textOf(await f.say('最近会话 nope')), /找不到工作区[\s\S]*genie、genie-mp/);
+  assert.equal((await f.say('活跃会话')).card.title, '🕘 最近会话');
+});
+
+test('最近会话排序：待确认 > 运行中 > 置顶 > 最近活动', async t => {
+  const now = Date.now();
+  const f = fixture(t, {
+    sessions: [
+      {sessionId: 'idle', cwd: os.homedir(), agentAvailable: true, title: 'Idle', updatedAt: now},
+      {sessionId: 'pin', cwd: os.homedir(), agentAvailable: true, title: 'Pin', updatedAt: now - 3000},
+      {sessionId: 'run', cwd: os.homedir(), agentAvailable: true, running: true, title: 'Run', updatedAt: now - 2000},
+      {sessionId: 'ask', cwd: os.homedir(), agentAvailable: true, title: 'Ask', updatedAt: now - 1000},
+    ],
+    wsState: {items: [], archived: new Set(), pinned: ['pin']},
+  });
+  await f.say('最近会话');
+  f.remote.turnBegin('ask', {rpcId: 'desk-1', text: '电脑发起'});
+  const parked = f.remote.uiAsk('ask', {kind: 'question', reqId: 'r1', title: '选页面', options: ['A', 'B']});
+  t.after(() => parked.done());
+  const names = optionsOf(await f.say('最近会话')).map(x => x.split(' · ')[0]);
+  assert.deepEqual(names, ['Ask', 'Run', '📌 Pin', 'Idle']);
+  assert.match(optionsOf(await f.say('最近会话'))[0], /← 待确认/);
+});
+
+test('最近会话按最近活动：不限时间窗口，合计最多 10 个，置顶占名额', async t => {
   const now = Date.now();
   const day = 24 * 3600_000;
   const recent = Array.from({length: 12}, (_, i) => ({sessionId: `r${i}`, cwd: os.homedir(), agentAvailable: false, title: `Recent${i}`, updatedAt: now - (i + 1) * 60_000}));
@@ -481,10 +541,10 @@ test('活跃列表按最近活动：Agent 已加载但久未动的不算，重�
     ],
     wsState: {items: [], archived: new Set(), pinned: ['pin']},
   });
-  const names = optionsOf(await f.say('活跃会话')).map(x => x.split(' · ')[0]);
+  const names = optionsOf(await f.say('最近会话')).map(x => x.split(' · ')[0]);
   assert.ok(!names.includes('Stale'), names.join(' | '));
   assert.equal(names[0], '📌 OldPin');
-  assert.deepEqual(names.slice(1), recent.slice(0, 10).map(s => s.title));
+  assert.deepEqual(names.slice(1), recent.slice(0, 9).map(s => s.title));
   assert.match(JSON.stringify(await f.say('历史会话 Recent1')), /Recent1/);
 });
 
@@ -580,6 +640,43 @@ test('权限模式：卡片列出预设并标当前；按名称切换走 /permis
   assert.match(textOf(await f.say('状态')), /权限模式：workspace-write/);
   assert.match(textOf(await f.say('切换权限 root')), /没有这个预设/);
   assert.doesNotMatch(JSON.stringify(await f.say('权限 不够怎么办')), /没有这个预设|切换权限模式/);
+});
+
+test('模式：空会话卡片列出模式并标当前，按名称或卡片切换；已开始的会话提示新建', async t => {
+  const f = fixture(t);
+  await bindFirst(f);
+  const card = await f.say('模式');
+  assert.deepEqual(optionsOf(card), ['标准模式 · ← 当前', 'PTC 模式', '极简模式', '创造模式']);
+  assert.match(JSON.stringify(await pick(f, card, 2)), /极简模式/);
+  assert.deepEqual(f.host.calls.find(c => c[0] === 'preset'), ['preset', 's1', 'minimal']);
+  assert.match(JSON.stringify(await f.say('切换模式 创造')), /创造模式/);
+  assert.deepEqual(f.host.calls.filter(c => c[0] === 'preset').at(-1), ['preset', 's1', 'cordis']);
+  assert.match(textOf(await f.say('状态')), /模式：创造模式/);
+  assert.match(textOf(await f.say('模式 nope')), /没有这个模式/);
+  f.host.started.add('s1');
+  assert.match(textOf(await f.say('模式 ptc')), /已开始的会话不能切换模式[\s\S]*创建会话/);
+  assert.equal(f.host.calls.filter(c => c[0] === 'preset').length, 2);
+});
+
+test('模式：创建会话时工作区前后的模式词都能识别；对不上的模式名按消息处理，显式写法对不上报错', async t => {
+  const f = fixture(t, {wsState: wsFixture(os.homedir())});
+  f.host.onPrompt = (sid, id, text) => f.turn(sid, {rpcId: id, text});
+  const created = (n = -1) => f.host.calls.filter(c => c[0] === 'create').at(n)[1];
+  const prompted = () => f.host.calls.filter(c => c[0] === 'prompt').at(-1)?.[3];
+  assert.match(JSON.stringify(await f.say('创建后台会话 创造模式')), /"keyname":"模式","value":"创造模式"/);
+  assert.deepEqual(created(), {agentPreset: 'cordis'});
+  await f.say('创建后台会话 PTC 模式 Proj 统计一下');
+  assert.deepEqual(created(), {workspaceId: 'w1', agentPreset: 'ptc'});
+  assert.equal(prompted(), '统计一下');
+  await f.say('创建后台会话 Proj 模式=minimal 跑个测试');
+  assert.deepEqual(created(), {workspaceId: 'w1', agentPreset: 'minimal'});
+  assert.equal(prompted(), '跑个测试');
+  await f.say('创建后台会话 生产模式 怎么开');
+  assert.deepEqual(created(), {});
+  assert.equal(prompted(), '生产模式 怎么开');
+  const n = f.host.calls.filter(c => c[0] === 'create').length;
+  assert.match(textOf(await f.say('创建后台会话 模式=nope hi')), /没有这个模式[\s\S]*创造模式/);
+  assert.equal(f.host.calls.filter(c => c[0] === 'create').length, n);
 });
 
 test('host 翻译：blocked 空轮次报 turnBlocked；定时提醒带 trigger', () => {

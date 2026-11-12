@@ -43,6 +43,7 @@ DeepSeek Harness.app ── host 进程
 | 工作区 | `workspace/follow` 流式，参数 `{}`，首帧 `{type:'baseline', value:{items[{workspaceId, path, title, sessionIds}], archivedSessionIds, pinnedSessionIds}}`；items 即 Desktop 侧栏顺序，置顶数组最近置顶的在前 |
 | 取消归档 | `workspace/unarchiveSession` `{request:{sessionId}}` → `{archivedSessionIds}`。已归档会话的新轮次被 ArchivedSessionGate 拦下：只有 `turn/start` → `turn/end{reason.kind:'blocked'}`，中间没有用户消息 |
 | 权限预设 | 目录 `permissionPresets/catalog` `{}` → `{options[{value, name}], defaultPreset}`；切换 `commands/execute` `{agentId, line:'/permission <value>', submittedAttachments:[]}` → `{result:{kind:'success', text:'preset <value>'}}`；当前值在投影 `permissions.currentValue` |
+| Agent 模式 | 目录 `agentPresets/list` `{}` → `{presets[{id, order, isDefault, name?, description?, broken?}]}`，内置 `standard` / `ptc` / `minimal` / `cordis`，不带中文名（Desktop 的「标准模式」等是前端文案，插件自带同样的映射）。新建时 `session/create` 的 request 加 `agentPreset`（可与 `workspaceId` / `cwd` 同时给，未知 id 报 `Unknown agent preset`）；已建的空会话用 `agentPresets/select` `{agentId, agentPreset}` → 模式 id，开始过一轮后报 `This session has already started`。当前值在投影 `agentPreset`，是否空会话看 `sessionListMetadata.blank` |
 | 停止 | `session/cancel` `{request:{sessionId}}` → `{accepted}`，该轮以 `turn/end{reason.kind:'aborted'}` 结束 |
 | 模型目录 | `session/modelCatalog` `{}` → `{default, groups[{id, name, models[{id, name, reasoning{efforts[{id, name}], defaultEffort}}]}], routableProviders}` |
 | 切模型 / 思考强度 | `session/selectModel` `{request:{sessionId, provider, model, reasoningEffort?}}` → `{selected:{provider, model, reasoningEffort}}`，并发 `model/selection` 事件 |
@@ -64,7 +65,7 @@ DeepSeek Harness.app ── host 进程
 
 ### 会话与轮次
 
-- 每个 DSH 会话一个 `DshTarget`（替换 `TuiTarget` / `RpcTarget`），`kind = 'dsh'`，只用于路由，不在卡片上展示类型：pi remote 的「终端可见 / 后台会话」在 DSH 没有对应形态，而「历史会话」一经打开就变成 `DshTarget`，展示出来只是插件内部状态。「活跃会话」= 运行中 / 当前 / 置顶，加最近 24 小时 `updatedAt` 有更新的（最多 10 个），不含 subagent 与已归档；其余进「历史会话」，带关键词检索时活跃会话也参与。不用 `agentAvailable` 判定：DSH 不回收空闲 Agent，它只表示本次 host 启动后被激活过，host 重启即全部归零。
+- 每个 DSH 会话一个 `DshTarget`（替换 `TuiTarget` / `RpcTarget`），`kind = 'dsh'`，只用于路由，不在卡片上展示类型：pi remote 的「终端可见 / 后台会话」在 DSH 没有对应形态，而「历史会话」一经打开就变成 `DshTarget`，展示出来只是插件内部状态。「最近会话」不按进程存活分，而是跨工作区按优先级排：待确认（有未答的审批或提问）> 运行中 > 置顶 > 按 `updatedAt` / 最近活动，不限时间窗口，合计最多 10 个，不含 subagent 与已归档；`最近会话 工作区名` 只列该工作区（名称精确匹配优先，否则包含匹配，多个命中先弹工作区选择卡），选项不再重复工作区名。其余进「历史会话」，带关键词检索时最近会话也参与。不用 `agentAvailable` 判定：DSH 不回收空闲 Agent，它只表示本次 host 启动后被激活过，host 重启即全部归零。
 - 手机投递的 `requestId` 以 `wecom-` 开头。一轮的来源看该轮第一条 `source.kind === 'user'` 的 `user/message`：`rpcId` 带前缀为手机发起，否则为电脑发起（`local`）。
 - 首条是 `schedule` / `goal` 来源的轮次带 `trigger`：会话最近一次用户消息来自手机（记在 `phone-sessions.json`，跨重启）时按手机发起处理。手机 `目标 描述` / `目标 继续` 也记为手机发起。`goal` 轮次在 `turn/end` 时按已收到的 `goal/change` 判断：目标仍是 active 就压下这一轮不推；轮内变为 complete / blocked / paused，或两轮之间来了非 active 的 `goal/change`（电脑上暂停、清除、到达上限）时推最后一轮；手机命令引起的变化由命令自己回复。
 - 同一轮里的第二条用户消息是插话：对应的手机 loop 标为并入（不单独回传），这一轮改为推回手机。
@@ -76,16 +77,17 @@ DeepSeek Harness.app ── host 进程
 
 | 命令 | DSH 实现 |
 |---|---|
-| `ls` 活跃会话 / `h` 历史会话 | `session/list` + projections + `workspace/follow` 首帧；默认隐藏 subagent（`origin === 'subagent'` 或有 `parentSessionId`）和已归档，`全部` 才显示；活跃列表置顶在前，其余按工作区顺序分组、未分组最后 |
+| `ls` 最近会话 / `h` 历史会话 | `session/list` + projections + `workspace/follow` 首帧；默认隐藏 subagent（`origin === 'subagent'` 或有 `parentSessionId`）和已归档，`全部` 才显示；最近会话的排序与工作区筛选见上文 |
 | `n` / `nb` 创建（后台）会话 | 位置 = 首个词（工作区名 / `未分组` / 别名 / 路径）或默认位置；工作区 → `{workspaceId}`，非工作区目录 → `{cwd}`，未分组 → `{}`。再投递首条消息，等非 fallback 标题（`nameWaitMs`）；`n` 在 `openDesktop` 打开时额外 `open dsh://open`（默认关，屏幕锁定时跳过） |
 | `cd` 工作区 | 列 `workspace/follow` 的工作区 + 未分组 + 不是工作区的别名目录，选中结果写 `.default-place`（`{workspaceId}` 或 `{cwd}`，没有文件 = 未分组）。不替用户在 Desktop 侧栏添加工作区 |
 | `steer` 插话 | 运行中 `session/prompt mode:'steer'`，空闲时同普通消息 |
 | `perm` 权限模式 | `permissionPresets/catalog` + `/permission <value>` |
+| `mode` 模式 | `agentPresets/list` + `agentPresets/select`；投影 `blank` 为 false 时不弹卡片，直接提示用「创建会话 模式名」新建。`n` / `nb` 开头或紧跟位置后的模式词（`模式=xx`，或以「模式」结尾的模式名）转成 `session/create` 的 `agentPreset`；模式名对不上时按普通消息，`模式=xx` 对不上则报错不新建 |
 | `goal` 目标 | `commands/execute '/goal [<目标>\|edit <目标>\|pause\|resume\|clear]'`；状态取 `goal` 投影（轮数只在 `goal/change` 时更新，当前轮取续跑提示词的 `Round: N/M`），续跑是否启用只在 `/goal` 输出的 `Activation:` 行。到达上限时续跑驱动在最后一轮后把目标标为 `blocked`（`round-limit`） |
 | `model` / `think` | `modelCatalog` + `selectModel`；思考强度取当前模型的 `reasoning.efforts` |
 | `compact` | `commands/execute '/compact'`，运行中拒绝；带说明时照常压缩，卡片提示说明未生效 |
 | `stop` | `session/cancel` |
-| `status` | projections：目录（分支）、模型·思考强度、上下文 `pressureTokens / contextWindow`、token 用量 |
+| `status` | projections：目录（分支）、模型·思考强度、Agent 模式、上下文 `pressureTokens / contextWindow`、token 用量 |
 | `art` 产物 | `write` / `edit` 的 `tool/call.arguments.file_path` 与 `tool/result.meta.path`，`present` 的 `files[].path`，回复里链接给出的文件；来自实时事件，首次查看时用 `session/follow` 快照补扫；过滤规则沿用 pi remote（扩展名白名单、排除 git 跟踪文件、隐藏目录、临时目录） |
 | `recap` 回顾 | `session/follow` 首帧快照里最近一个有消息的 `turn/start` … `turn/end`：提问取第一条 `source.kind` 为 `user` / `schedule` / `goal` 的用户消息，正文取最后一条有文字的 `assistant/message`；进行中和被拦下的空轮次跳过，超长转 Markdown 文档。「选择会话」卡片带一行提示 |
 | `关注` / `取关`、引用路由、待投递选会话卡片 | 宿主无关，原样保留；`关注` 额外打开「电脑发起的审批转手机」，`取关` 关闭 |

@@ -281,44 +281,29 @@ test('真实嵌套卡片回调读取任务和选项，更新卡片带同一任�
   assert.equal(f.updates[0].task_id,'task');
 });
 
-test('首次连接提示使用指定文案：走 markdown，命令显示为行内代码', async t => {
+test('主人进会话不发欢迎语；未绑定时提示绑定，走 markdown', async t => {
   const f=fixture(t); const welcomes=[];
   f.client.replyWelcome=async (_frame,body)=>{welcomes.push(body);};
   f.transport.connected=true;
-  f.client.emit('event.enter_chat',f.frame('welcome'));
-  await turn();
-  assert.deepEqual(welcomes,[]); // text 欢迎语不渲染 Markdown，不再使用
-  assert.deepEqual(f.sent.map(m=>m.body.markdown?.content),['DSH Remote 已连接，发送 `帮助` 查看命令。']);
-});
-
-test('刚发过消息时进会话不重复欢迎，静默期后恢复；未绑定提示不受影响', async t => {
-  const f=fixture(t); f.transport.connected=true;
-  const welcomes=()=>f.sent.map(m=>m.body.markdown?.content).filter(x=>x?.startsWith('DSH Remote'));
-  f.transport.send('任务完成'); await turn();
   f.client.emit('event.enter_chat',f.frame('w1')); await turn();
-  assert.deepEqual(welcomes(),[]);
-  f.transport.lastOwnerSendAt=Date.now()-3*60*1000;
-  f.client.emit('event.enter_chat',f.frame('w2')); await turn();
-  assert.deepEqual(welcomes(),['DSH Remote 已连接，发送 `帮助` 查看命令。']);
+  assert.deepEqual(f.sent,[]);
   const u=fixture(t); u.config.ownerUserId='';
-  u.transport.lastOwnerSendAt=Date.now();
-  u.client.emit('event.enter_chat',u.frame('w3',undefined,{from:{userid:'someone'}})); await turn();
+  u.client.replyWelcome=async (_frame,body)=>{welcomes.push(body);};
+  u.client.emit('event.enter_chat',u.frame('w2',undefined,{from:{userid:'someone'}})); await turn();
   assert.deepEqual(u.sent.map(m=>[m.to,m.body.markdown?.content]),[['someone','尚未绑定。请在电脑上执行 `dsh-remote-wecom bind`，把显示的 6 位绑定码发到这里。']]);
+  assert.deepEqual(welcomes,[]); // text 欢迎语不渲染 Markdown，不再使用
 });
 
-test('任务运行中或主人刚发过消息时，进会话不回欢迎语', async t => {
-  let busy = true;
-  const f=fixture(t,{isBusy:()=>busy}); f.transport.connected=true;
-  const welcomes=()=>f.sent.map(m=>m.body.markdown?.content).filter(x=>x?.startsWith('DSH Remote'));
-  f.client.emit('event.enter_chat',f.frame('b1')); await turn();
-  assert.deepEqual(welcomes(),[]);
-  busy = false;
-  f.client.emit('message',f.frame('b2','帮我看下日志')); await turn();
-  f.client.emit('event.enter_chat',f.frame('b3')); await turn();
-  assert.deepEqual(welcomes(),[]);
-  f.transport.lastOwnerRecvAt=Date.now()-3*60*1000; f.transport.lastOwnerSendAt=0;
-  f.client.emit('event.enter_chat',f.frame('b4')); await turn();
-  assert.deepEqual(welcomes(),['DSH Remote 已连接，发送 `帮助` 查看命令。']);
+test('离线文案：主人进会话提示，双方刚有往来时不重复', async t => {
+  const f=fixture(t,{welcome:'Desktop 未运行'}); f.transport.connected=true;
+  const notices=()=>f.sent.map(m=>m.body.markdown?.content).filter(x=>x==='Desktop 未运行');
+  f.client.emit('event.enter_chat',f.frame('o1')); await turn();
+  assert.equal(notices().length,1);
+  f.client.emit('event.enter_chat',f.frame('o2')); await turn();
+  assert.equal(notices().length,1);
+  f.transport.lastOwnerSendAt=Date.now()-3*60*1000;
+  f.client.emit('event.enter_chat',f.frame('o3')); await turn();
+  assert.equal(notices().length,2);
 });
 
 test('重启通知后立即进会话，只出现重启通知一条', async t => {
@@ -410,7 +395,7 @@ test('未绑定：绑定码错误计次作废，正确码绑定首个发送者�
   const cards = f.sent.filter(m => m.to === 'owner' && m.body.msgtype === 'template_card');
   assert.equal(cards.length, 1);
   assert.equal(cards[0].body.template_card.emphasis_content.title, '绑定成功');
-  assert.deepEqual(cards[0].body.template_card.jump_list.map(j => j.question), ['活跃会话', '帮助']);
+  assert.deepEqual(cards[0].body.template_card.jump_list.map(j => j.question), ['最近会话', '帮助']);
   assert.equal(f.transport.status().bound, true);
 });
 test('未绑定：错误 5 次后绑定码作废，过期码不能绑定', async t => {
