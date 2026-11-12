@@ -43,6 +43,7 @@ DeepSeek Harness.app ── host 进程
 | 工作区 | `workspace/follow` 流式，参数 `{}`，首帧 `{type:'baseline', value:{items[{workspaceId, path, title, sessionIds}], archivedSessionIds, pinnedSessionIds}}`；items 即 Desktop 侧栏顺序，置顶数组最近置顶的在前 |
 | 取消归档 | `workspace/unarchiveSession` `{request:{sessionId}}` → `{archivedSessionIds}`。已归档会话的新轮次被 ArchivedSessionGate 拦下：只有 `turn/start` → `turn/end{reason.kind:'blocked'}`，中间没有用户消息 |
 | 权限预设 | 目录 `permissionPresets/catalog` `{}` → `{options[{value, name}], defaultPreset}`；切换 `commands/execute` `{agentId, line:'/permission <value>', submittedAttachments:[]}` → `{result:{kind:'success', text:'preset <value>'}}`；当前值在投影 `permissions.currentValue` |
+| Agent 模式 | 目录 `agentPresets/list` `{}` → `{presets[{id, order, isDefault, name?, description?, broken?}]}`，内置 `standard` / `ptc` / `minimal` / `cordis`，不带中文名（Desktop 的「标准模式」等是前端文案，插件自带同样的映射）。新建时 `session/create` 的 request 加 `agentPreset`（可与 `workspaceId` / `cwd` 同时给，未知 id 报 `Unknown agent preset`）；已建的空会话用 `agentPresets/select` `{agentId, agentPreset}` → 模式 id，开始过一轮后报 `This session has already started`。当前值在投影 `agentPreset`，是否空会话看 `sessionListMetadata.blank` |
 | 停止 | `session/cancel` `{request:{sessionId}}` → `{accepted}`，该轮以 `turn/end{reason.kind:'aborted'}` 结束 |
 | 模型目录 | `session/modelCatalog` `{}` → `{default, groups[{id, name, models[{id, name, reasoning{efforts[{id, name}], defaultEffort}}]}], routableProviders}` |
 | 切模型 / 思考强度 | `session/selectModel` `{request:{sessionId, provider, model, reasoningEffort?}}` → `{selected:{provider, model, reasoningEffort}}`，并发 `model/selection` 事件 |
@@ -81,11 +82,12 @@ DeepSeek Harness.app ── host 进程
 | `cd` 工作区 | 列 `workspace/follow` 的工作区 + 未分组 + 不是工作区的别名目录，选中结果写 `.default-place`（`{workspaceId}` 或 `{cwd}`，没有文件 = 未分组）。不替用户在 Desktop 侧栏添加工作区 |
 | `steer` 插话 | 运行中 `session/prompt mode:'steer'`，空闲时同普通消息 |
 | `perm` 权限模式 | `permissionPresets/catalog` + `/permission <value>` |
+| `mode` 模式 | `agentPresets/list` + `agentPresets/select`；投影 `blank` 为 false 时不弹卡片，直接提示用「创建会话 模式名」新建。`n` / `nb` 开头或紧跟位置后的模式词（`模式=xx`，或以「模式」结尾的模式名）转成 `session/create` 的 `agentPreset`；模式名对不上时按普通消息，`模式=xx` 对不上则报错不新建 |
 | `goal` 目标 | `commands/execute '/goal [<目标>\|edit <目标>\|pause\|resume\|clear]'`；状态取 `goal` 投影（轮数只在 `goal/change` 时更新，当前轮取续跑提示词的 `Round: N/M`），续跑是否启用只在 `/goal` 输出的 `Activation:` 行。到达上限时续跑驱动在最后一轮后把目标标为 `blocked`（`round-limit`） |
 | `model` / `think` | `modelCatalog` + `selectModel`；思考强度取当前模型的 `reasoning.efforts` |
 | `compact` | `commands/execute '/compact'`，运行中拒绝；带说明时照常压缩，卡片提示说明未生效 |
 | `stop` | `session/cancel` |
-| `status` | projections：目录（分支）、模型·思考强度、上下文 `pressureTokens / contextWindow`、token 用量 |
+| `status` | projections：目录（分支）、模型·思考强度、Agent 模式、上下文 `pressureTokens / contextWindow`、token 用量 |
 | `art` 产物 | `write` / `edit` 的 `tool/call.arguments.file_path` 与 `tool/result.meta.path`，`present` 的 `files[].path`，回复里链接给出的文件；来自实时事件，首次查看时用 `session/follow` 快照补扫；过滤规则沿用 pi remote（扩展名白名单、排除 git 跟踪文件、隐藏目录、临时目录） |
 | `recap` 回顾 | `session/follow` 首帧快照里最近一个有消息的 `turn/start` … `turn/end`：提问取第一条 `source.kind` 为 `user` / `schedule` / `goal` 的用户消息，正文取最后一条有文字的 `assistant/message`；进行中和被拦下的空轮次跳过，超长转 Markdown 文档。「选择会话」卡片带一行提示 |
 | `关注` / `取关`、引用路由、待投递选会话卡片 | 宿主无关，原样保留；`关注` 额外打开「电脑发起的审批转手机」，`取关` 关闭 |

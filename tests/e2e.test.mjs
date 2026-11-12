@@ -332,6 +332,22 @@ test('DSH + 插件 + 假企微：创建/活跃/历史/模型/停止/压缩/状�
     assert.match(await waitText(/任务完成 · gamma/, at, 30000), /echo: after archive/);
   });
 
+  await t.test('模式：带模式创建会话，首条前可改，开始后拒绝', async () => {
+    const preset = async sid => (await call('session', 'projections', {request: {sessionId: sid}}))?.values?.agentPreset;
+    const created = await waitCard(c => /创建会话/.test(c.main_title?.title || ''), say('创建后台会话 创造模式'));
+    assert.ok(created.horizontal_content_list.some(x => x.keyname === '模式' && x.value === '创造模式'));
+    const sid = fs.readFileSync(path.join(data, '.current'), 'utf8').trim();
+    assert.equal(await preset(sid), 'cordis');
+    const card = await waitCard(c => /切换模式/.test(c.main_title?.title || ''), say('模式 ptc'));
+    assert.equal(card.emphasis_content.title, 'PTC 模式');
+    assert.equal(await preset(sid), 'ptc');
+    at = say('delta mode task');
+    await waitText(/任务完成 · delta/, at, 30000);
+    assert.match(await waitText(/已开始的会话不能切换模式/, say('模式 极简')), /PTC 模式/);
+    assert.equal(await preset(sid), 'ptc');
+    assert.match(await waitText(/空闲 · delta/, say('状态')), /模式：PTC 模式/);
+  });
+
   await t.test('引用推送回复：消息进入被引用的会话并切换当前会话', async () => {
     const reply = await waitText(/任务完成 · beta/, say('quoted hello', {quote: '🏁 任务完成 · beta\n\n---\n\necho: beta second task'}));
     assert.match(reply, /echo: quoted hello/);

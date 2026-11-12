@@ -14,15 +14,23 @@ const textOf = m => typeof m === 'string' ? m : m?.text || m?.fallback || '';
 function fakeHost(sessions, ws = {items: [], archived: new Set(), pinned: []}) {
   const calls = [];
   const host = {
-    calls, onPrompt: null, ws, permission: 'read-only', goalState: null, armed: false,
+    calls, onPrompt: null, ws, permission: 'read-only', goalState: null, armed: false, presetOf: {}, started: new Set(),
     async listSessions() { return sessions; },
-    async projections(sid) { return {title: sessions.find(s => s.sessionId === sid)?.title || null, permissions: {currentValue: host.permission}, goal: host.goalState, modelSelection: sid === 's-new' ? {} : {next: {provider: 'mock', model: 'echo', reasoningEffort: 'low'}}, contextPressure: {pressureTokens: 2000, projectedTokens: 2000, contextWindow: 100000}}; },
+    async projections(sid) { return {title: sessions.find(s => s.sessionId === sid)?.title || null, permissions: {currentValue: host.permission}, goal: host.goalState, agentPreset: host.presetOf[sid] || 'standard', sessionListMetadata: {blank: !host.started.has(sid)}, modelSelection: sid === 's-new' ? {} : {next: {provider: 'mock', model: 'echo', reasoningEffort: 'low'}}, contextPressure: {pressureTokens: 2000, projectedTokens: 2000, contextWindow: 100000}}; },
     async createSession(place) {
       calls.push(['create', place]);
       const w = ws.items.find(x => x.id === place.workspaceId);
       if (w) w.sessionIds.unshift('s-new');
       sessions.push({sessionId: 's-new', cwd: w?.path || place.cwd || os.homedir(), agentAvailable: true});
+      host.presetOf['s-new'] = place.agentPreset || 'standard';
       return 's-new';
+    },
+    async presetCatalog() { return ['standard', 'ptc', 'minimal', 'cordis'].map((id, i) => ({id, name: '', isDefault: i === 0})); },
+    async selectPreset(sid, preset) {
+      calls.push(['preset', sid, preset]);
+      if (host.started.has(sid)) throw new Error('This session has already started');
+      host.presetOf[sid] = preset;
+      return preset;
     },
     async prompt(sid, requestId, text, mode) { calls.push(['prompt', sid, requestId, text, mode]); setImmediate(() => host.onPrompt?.(sid, requestId, text, mode)); },
     async workspaces() { return {items: ws.items.map(w => ({...w, sessionIds: [...w.sessionIds]})), archived: new Set(ws.archived), pinned: [...ws.pinned]}; },
@@ -632,6 +640,43 @@ test('权限模式：卡片列出预设并标当前；按名称切换走 /permis
   assert.match(textOf(await f.say('状态')), /权限模式：workspace-write/);
   assert.match(textOf(await f.say('切换权限 root')), /没有这个预设/);
   assert.doesNotMatch(JSON.stringify(await f.say('权限 不够怎么办')), /没有这个预设|切换权限模式/);
+});
+
+test('模式：空会话卡片列出模式并标当前，按名称或卡片切换；已开始的会话提示新建', async t => {
+  const f = fixture(t);
+  await bindFirst(f);
+  const card = await f.say('模式');
+  assert.deepEqual(optionsOf(card), ['标准模式 · ← 当前', 'PTC 模式', '极简模式', '创造模式']);
+  assert.match(JSON.stringify(await pick(f, card, 2)), /极简模式/);
+  assert.deepEqual(f.host.calls.find(c => c[0] === 'preset'), ['preset', 's1', 'minimal']);
+  assert.match(JSON.stringify(await f.say('切换模式 创造')), /创造模式/);
+  assert.deepEqual(f.host.calls.filter(c => c[0] === 'preset').at(-1), ['preset', 's1', 'cordis']);
+  assert.match(textOf(await f.say('状态')), /模式：创造模式/);
+  assert.match(textOf(await f.say('模式 nope')), /没有这个模式/);
+  f.host.started.add('s1');
+  assert.match(textOf(await f.say('模式 ptc')), /已开始的会话不能切换模式[\s\S]*创建会话/);
+  assert.equal(f.host.calls.filter(c => c[0] === 'preset').length, 2);
+});
+
+test('模式：创建会话时工作区前后的模式词都能识别；对不上的模式名按消息处理，显式写法对不上报错', async t => {
+  const f = fixture(t, {wsState: wsFixture(os.homedir())});
+  f.host.onPrompt = (sid, id, text) => f.turn(sid, {rpcId: id, text});
+  const created = (n = -1) => f.host.calls.filter(c => c[0] === 'create').at(n)[1];
+  const prompted = () => f.host.calls.filter(c => c[0] === 'prompt').at(-1)?.[3];
+  assert.match(JSON.stringify(await f.say('创建后台会话 创造模式')), /"keyname":"模式","value":"创造模式"/);
+  assert.deepEqual(created(), {agentPreset: 'cordis'});
+  await f.say('创建后台会话 PTC 模式 Proj 统计一下');
+  assert.deepEqual(created(), {workspaceId: 'w1', agentPreset: 'ptc'});
+  assert.equal(prompted(), '统计一下');
+  await f.say('创建后台会话 Proj 模式=minimal 跑个测试');
+  assert.deepEqual(created(), {workspaceId: 'w1', agentPreset: 'minimal'});
+  assert.equal(prompted(), '跑个测试');
+  await f.say('创建后台会话 生产模式 怎么开');
+  assert.deepEqual(created(), {});
+  assert.equal(prompted(), '生产模式 怎么开');
+  const n = f.host.calls.filter(c => c[0] === 'create').length;
+  assert.match(textOf(await f.say('创建后台会话 模式=nope hi')), /没有这个模式[\s\S]*创造模式/);
+  assert.equal(f.host.calls.filter(c => c[0] === 'create').length, n);
 });
 
 test('host 翻译：blocked 空轮次报 turnBlocked；定时提醒带 trigger', () => {
