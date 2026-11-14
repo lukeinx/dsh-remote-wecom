@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote-wecom",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "DeepSeek Harness plugin: control Desktop sessions from WeCom, with session cards, attachments, approvals and task results.",
   "author": "lukeinx",
   "repository": {

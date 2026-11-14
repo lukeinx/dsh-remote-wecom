@@ -840,3 +840,49 @@ test('状态：还有其他运行中会话时先弹选择卡片，点选后回�
   assert.match(reply, /引用消息，回复会发给该会话/);
   assert.equal(boundSid(f), cur);
 });
+
+test('未选会话：指令弹选择卡，选中后切换并接着执行，不用重发', async t => {
+  const f = fixture(t);
+  const card = await f.say('模型');
+  assert.equal(card.card.card_type, 'vote_interaction');
+  assert.equal(card.card.title, '📌 在哪个会话执行？');
+  assert.match(card.card.desc, /指令：模型/);
+  const opts = optionsOf(card);
+  assert.match(opts[0], /^Alpha/);
+  assert.match(opts.at(-1), /^➕ 新建会话/);
+  const reply = await pick(f, card, 0);
+  assert.equal(boundSid(f), 's1');
+  assert.ok(optionsOf(reply).some(o => /Echo/.test(o)), JSON.stringify(reply));
+  assert.match(textOf(await pick(f, card, 0)), /已经提交过/);
+});
+
+test('未选会话：普通消息暂存，选中后直接投递', async t => {
+  const f = fixture(t);
+  f.host.onPrompt = (sid, id, text) => f.turn(sid, {rpcId: id, text});
+  const card = await f.say('你好');
+  assert.equal(card.card.title, '✉️ 发给哪个会话？');
+  assert.ok(!f.host.calls.some(c => c[0] === 'prompt'));
+  const reply = textOf(await pick(f, card, 0));
+  const prompt = f.host.calls.find(c => c[0] === 'prompt');
+  assert.equal(prompt[1], 's1');
+  assert.equal(prompt[3], '你好');
+  assert.match(reply, /echo: 你好/);
+});
+
+test('未选会话：选「新建会话」后在新会话里执行指令；停止只列运行中的会话', async t => {
+  const f = fixture(t);
+  const card = await f.say('模式');
+  const reply = await pick(f, card, card.card.options.length - 1);
+  assert.ok(f.host.calls.some(c => c[0] === 'create'));
+  assert.equal(boundSid(f), 's-new');
+  assert.match(JSON.stringify(reply), /模式/);
+
+  const g = fixture(t);
+  assert.match(textOf(await g.say('停止')), /无需中断/);
+  g.remote.sessionStatus('s1', true);
+  g.remote.turnBegin('s1', {text: '电脑上发起'});
+  const stop = await g.say('停止');
+  assert.equal(optionsOf(stop).length, 1);
+  await pick(g, stop, 0);
+  assert.ok(g.host.calls.some(c => c[0] === 'cancel' && c[1] === 's1'));
+});
